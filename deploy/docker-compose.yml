@@ -1,0 +1,57 @@
+# docker-compose.yml
+# Запуск: docker compose up --build
+#
+# Перед запуском указать сетевой интерфейс:
+#   export IFACE=eth0   (интерфейс, на котором приходят пакеты от BRO30)
+#   docker compose up --build
+
+services:
+
+  # ── Frontend ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      network: host
+    container_name: bro30_frontend
+    network_mode: host
+    environment:
+      - WEBSOCKET_URL=ws://localhost:8765
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # ── Backend ──────────────────────────────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      network: host
+    container_name: bro30_backend
+    network_mode: host
+    volumes:
+      - ../backend/storage:/app/storage
+    restart: unless-stopped
+
+  # ── Gateway (C++, REAL режим) ─────────────────────────────────
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+      network: host
+      args:
+        - REAL_MODE=ON
+    container_name: bro30_gateway
+    network_mode: host         
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_NICE
+    environment:
+      - GATEWAY_MODE=real
+      - BACKEND_ADDR=127.0.0.1  
+      - BACKEND_PORT=8888
+      - IFACE_NAME=${IFACE:-wlan0}
+    restart: unless-stopped
+    depends_on:
+      - backend

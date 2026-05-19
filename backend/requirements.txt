@@ -1,0 +1,5 @@
+websockets
+psutil
+ruff
+dash_bootstrap_components
+pandas

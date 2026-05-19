@@ -1,0 +1,3 @@
+/home/daniil/Projects/Dashboard/build/CMakeFiles/mj_gateway.dir
+/home/daniil/Projects/Dashboard/build/CMakeFiles/edit_cache.dir
+/home/daniil/Projects/Dashboard/build/CMakeFiles/rebuild_cache.dir
