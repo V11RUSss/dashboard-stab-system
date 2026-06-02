@@ -6,7 +6,6 @@
 #   docker compose up --build
 
 services:
-
   # ── Frontend ─────────────────────────────────────────────────
   frontend:
     build:
@@ -42,16 +41,16 @@ services:
       args:
         - REAL_MODE=ON
     container_name: bro30_gateway
-    network_mode: host         
+    network_mode: host
     cap_add:
       - NET_RAW
       - NET_ADMIN
       - SYS_NICE
     environment:
       - GATEWAY_MODE=real
-      - BACKEND_ADDR=127.0.0.1  
+      - BACKEND_ADDR=127.0.0.1
       - BACKEND_PORT=8888
-      - IFACE_NAME=${IFACE:-wlan0}
+      - IFACE_NAME=${IFACE:-enxec9a0c1480a6}
     restart: unless-stopped
     depends_on:
       - backend

@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketServer:
+    HISTORY_LIMIT = 100
+
     def __init__(
         self,
         host: str,
@@ -29,9 +31,14 @@ class WebSocketServer:
         if not self.ws_connections:
             return
         msg = json.dumps(payload)
-        aws = [asyncio.create_task(c.send(msg)) for c in self.ws_connections]
-        if aws:
-            await asyncio.wait(aws, return_when=asyncio.ALL_COMPLETED)
+        connections = list(self.ws_connections)
+        results = await asyncio.gather(
+            *(c.send(msg) for c in connections),
+            return_exceptions=True,
+        )
+        for connection, result in zip(connections, results):
+            if isinstance(result, Exception):
+                self.ws_connections.discard(connection)
 
     async def _handle_connection(self, websocket) -> None:
         self.ws_connections.add(websocket)
@@ -53,9 +60,10 @@ class WebSocketServer:
 
             # 3. История телеметрии (последние N точек)
             if self.storage and self.storage.recent_data:
+                history = list(self.storage.recent_data)[-self.HISTORY_LIMIT:]
                 await websocket.send(json.dumps({
                     "type":    "telemetry_history",
-                    "payload": list(self.storage.recent_data),
+                    "payload": history,
                 }))
 
             async for message in websocket:

@@ -23,7 +23,7 @@ class DataStorage:
         self.filename = os.path.join(self.data_dir, "raw_data.pkl")
 
         self.queue       = asyncio.Queue()
-        self.recent_data = deque(maxlen=1000)   # последние 1000 decoded dict
+        self.recent_data = deque(maxlen=300)   # последние decoded dict для UI
         self._writer_task = None
 
     async def start_writer(self) -> None:

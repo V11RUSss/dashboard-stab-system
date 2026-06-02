@@ -106,9 +106,14 @@ void RealReceiver::run()
         return;
     }
 
-    // Активировать RX-поток (TX не нужен — только принимаем)
-    setRxStatus(true);
-    setTxStatus(false);
+    // Create the Ethernet interface before registering callbacks: registration
+    // starts the RX thread, and the driver filter reads current_eth_if.
+    void* eth_if = idrv.udp4.create_interface(nullptr, 0);
+    if (!eth_if) {
+        fprintf(stderr, "[REAL] FATAL: create_interface returned NULL.\n");
+        while (g_real_running) sleep(5);
+        return;
+    }
 
     // Зарегистрировать callback для dcu_telemetry
     // Multicast BRO_BUP_SRV_MCAST = 239.200.100.1 → port 49001
@@ -124,16 +129,13 @@ void RealReceiver::run()
     fprintf(stderr, "[REAL] register bup_state callback: %s\n",
             st2 == MJ_OK ? "OK" : "FAIL");
 
-    // Создать Ethernet-интерфейс и вступить в multicast-группы
-    void* eth_if = idrv.udp4.create_interface(nullptr, 0);
-    if (eth_if) {
-        idrv.udp4.join_group(eth_if, BRO_BUP_SRV_MCAST_IP);
-        idrv.udp4.join_group(eth_if, BRO_BUP_DATA_MCAST_IP);
-        fprintf(stderr, "[REAL] Joined multicast groups.\n");
-    } else {
-        fprintf(stderr, "[REAL] WARNING: create_interface returned NULL "
-                        "(no MAC/IP needed for RX-only)\n");
-    }
+    // Активировать RX-поток (TX не нужен — только принимаем)
+    setRxStatus(true);
+    setTxStatus(false);
+
+    idrv.udp4.join_group(eth_if, BRO_BUP_SRV_MCAST_IP);
+    idrv.udp4.join_group(eth_if, BRO_BUP_DATA_MCAST_IP);
+    fprintf(stderr, "[REAL] Joined multicast groups.\n");
 
     fprintf(stderr, "[REAL] Listening for MicroJet packets...\n");
 

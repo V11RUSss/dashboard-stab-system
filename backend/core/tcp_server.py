@@ -15,6 +15,7 @@ tcp_server.py — TLV-парсер для приёма бинарных MJ-па�
 import asyncio
 import struct
 import logging
+import time
 from datetime import datetime, timezone
 
 from core.storage import DataStorage
@@ -33,6 +34,8 @@ class TCPGatewayServer:
     Каждый TLV-фрейм декодируется и рассылается через WebSocket.
     """
 
+    UI_BROADCAST_INTERVAL_S = 0.05
+
     def __init__(
         self,
         host: str,
@@ -48,6 +51,7 @@ class TCPGatewayServer:
         self.storage      = storage
         self.engine       = engine
         self.ws_server    = ws_server
+        self._last_broadcast_by_device = {}
 
     async def _handle_stream(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -94,11 +98,16 @@ class TCPGatewayServer:
                 # 7. Добавить в history буфер
                 self.storage.recent_data.append(decoded)
 
-                # 8. Broadcast через WebSocket
-                await self.ws_server.broadcast({
-                    "type":    "device_telemetry",
-                    "payload": decoded,
-                })
+                # 8. Broadcast через WebSocket. UI не должен получать каждый
+                # raw-пакет: Dash callbacks заметно тяжелее бинарного TCP потока.
+                now = time.monotonic()
+                last_sent = self._last_broadcast_by_device.get(dev_id, 0.0)
+                if now - last_sent >= self.UI_BROADCAST_INTERVAL_S:
+                    self._last_broadcast_by_device[dev_id] = now
+                    await self.ws_server.broadcast({
+                        "type":    "device_telemetry",
+                        "payload": decoded,
+                    })
 
         except asyncio.IncompleteReadError:
             logger.info("Шлюз отключился: %s", addr)

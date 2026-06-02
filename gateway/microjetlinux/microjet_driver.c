@@ -8,6 +8,7 @@
 
 #include "microjet_driver.h"
 #include "ptp.h"
+#include <errno.h>
 
 tx_conf tx;
 rx_conf rx;
@@ -336,6 +337,9 @@ bool bufferHandler(uint8_t * buffer, void ** payload,size_t * payload_size, mj_m
     bool check_result = false;
     struct iphdr *iph = (struct iphdr *) (buffer + sizeof(struct ether_header));
     struct udphdr *udph = (struct udphdr *) (buffer + sizeof(struct iphdr) + sizeof(struct ether_header));
+    if (current_eth_if == NULL) {
+        return false;
+    }
     if(iph->protocol == 17 && iph->saddr != current_eth_if->ip){
         for(int j = 0; j < num_callbacks; j++){
             if(iph->daddr == callbacks[j].dest_ip){
@@ -402,7 +406,19 @@ void * receiveFunction(void * args) {
     while(1){
         pthread_testcancel();
         if(rx.enable){
-            poll(&poll_attr,1,1000);
+            int poll_result = poll(&poll_attr,1,1000);
+            if (poll_result == 0) {
+                continue;
+            }
+            if (poll_result < 0) {
+                if (errno != EINTR) {
+                    perror("MJDRV: Error in poll()");
+                }
+                continue;
+            }
+            if (!(poll_attr.revents & POLLIN)) {
+                continue;
+            }
             //run recvfrom to listen the socket
             buffer_size = recvfrom(rx.socket, recieve_buffer, BUF_SIZE, 0, NULL, NULL);
             if(buffer_size > 0){ //when recieve packet -> check its length and pass it to handler
@@ -429,7 +445,9 @@ void * receiveFunction(void * args) {
             }
 
             else if (buffer_size == -1) {
-                perror("MJDRV: Error in recvfrom()");
+                if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                    perror("MJDRV: Error in recvfrom()");
+                }
             }
         }else{
             sleep(1);

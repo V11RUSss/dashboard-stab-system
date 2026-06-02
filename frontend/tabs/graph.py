@@ -355,7 +355,7 @@ def register_graph_callbacks(app):
         Output("graph-param-select", "options"),
         Output("graph-param-select", "value"),
         Input("graph-device-select", "value"),
-        State("graph-data-store",    "data"),
+        Input("graph-data-store",    "data"),
         State("graph-param-select",  "value"),
         prevent_initial_call=True,
     )
