@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Site BuildName="Linux-g++"
+	BuildStamp="20260812-1556-Experimental"
+	Name="B560M-Pro4"
+	Generator="ctest-4.2.3"
+	CompilerName="/usr/bin/g++"
+	CompilerVersion="15.2.0"
+	OSName="Linux"
+	Hostname="B560M-Pro4"
+	OSRelease="7.0.0-30-generic"
+	OSVersion="#30-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 31 18:22:54 UTC 2026"
+	OSPlatform="x86_64"
+	Is64Bits="1"
+	VendorString="GenuineIntel"
+	VendorID="Intel Corporation"
+	FamilyID="6"
+	ModelID="167"
+	ModelName="11th Gen Intel(R) Core(TM) i5-11400F @ 2.60GHz"
+	ProcessorCacheSize="12288"
+	NumberOfLogicalCPU="12"
+	NumberOfPhysicalCPU="6"
+	TotalVirtualMemory="7662"
+	TotalPhysicalMemory="15326"
+	LogicalProcessorsPerPhysical="2"
+	ProcessorClockFrequency="4200"
+	>
+	<Testing>
+		<StartDateTime>Aug 29 19:38 MSK</StartDateTime>
+		<StartTestTime>1788021531</StartTestTime>
+		<TestList/>
+		<EndDateTime>Aug 29 19:38 MSK</EndDateTime>
+		<EndTestTime>1788021531</EndTestTime>
+		<ElapsedMinutes>0</ElapsedMinutes>
+	</Testing>
+</Site>

@@ -1,38 +1,51 @@
-"""
-tabs/graph.py — График телеметрии с выбором устройства и параметра.
-"""
+"""Low-overhead live telemetry chart backed by client-side buffers."""
 
-import json
-from collections import deque
-from dash import dcc, html, no_update, callback_context as ctx
-from dash.dependencies import Output, Input, State
-import plotly.graph_objs as go
-
-from styles import PANEL_STYLE, INPUT_STYLE, BUTTON_STYLE
-
-# ─── Параметры для построения графика ────────────────────────
+from dash import ClientsideFunction, dcc, html
+from dash.dependencies import Input, Output, State
 
 GRAPHABLE_PARAMS = {
-    "angle":            "Угол нагрузки (рад)",
-    "speed":            "Скорость нагрузки (рад/с)",
-    "load_sens_angle":  "Угол нагрузки — DCU (рад)",
-    "load_sens_speed":  "Скорость нагрузки — DCU (рад/с)",
+    "angle": "Угол нагрузки (рад)",
+    "speed": "Скорость нагрузки (рад/с)",
+    "load_sens_angle": "Угол нагрузки — DCU (рад)",
+    "load_sens_speed": "Скорость нагрузки — DCU (рад/с)",
     "rotor_sens_angle": "Угол ротора (рад)",
     "rotor_sens_speed": "Скорость ротора (рад/с)",
-    "power_vdc":        "Напряжение DC (В)",
-    "power_voltage":    "Напряжение питания (В)",
+    "power_vdc": "Напряжение DC (В)",
+    "power_voltage": "Напряжение питания (В)",
     "electrical_power": "Мощность (Вт)",
-    "stator_temp":      "Температура статора (°C)",
-    "ibrk":             "Ток тормоза (А)",
-    "current_a":        "Ток фазы A (А)",
-    "current_b":        "Ток фазы B (А)",
-    "current_c":        "Ток фазы C (А)",
-    "id":               "Ток id (А)",
-    "iq":               "Ток iq (А)",
+    "stator_temp": "Температура статора (°C)",
+    "ibrk": "Ток тормоза (А)",
+    "phase_currents": "Токи фаз A/B/C (А)",
+    "id": "Ток id (А)",
+    "iq": "Ток iq (А)",
+}
+
+PARAM_MESSAGE_TYPES = {
+    "angle": "bup_state",
+    "speed": "bup_state",
+    "id": "bup_state",
+    "iq": "bup_state",
+    "load_sens_angle": "dcu_telemetry",
+    "load_sens_speed": "dcu_telemetry",
+    "rotor_sens_angle": "dcu_telemetry",
+    "rotor_sens_speed": "dcu_telemetry",
+    "power_vdc": "dcu_telemetry",
+    "power_voltage": "dcu_telemetry",
+    "electrical_power": "dcu_telemetry",
+    "stator_temp": "dcu_telemetry",
+    "ibrk": "dcu_telemetry",
+    "phase_currents": "dcu_telemetry",
+}
+
+PARAMETER_SERIES = {
+    "phase_currents": [
+        {"field": "current_a", "label": "Фаза A", "color": "#ef4444"},
+        {"field": "current_b", "label": "Фаза B", "color": "#f59e0b"},
+        {"field": "current_c", "label": "Фаза C", "color": "#3b82f6"},
+    ]
 }
 
 DEVICE_LABELS = {
-    "dcu":         "МУП — Модуль управления",
     "bup_dcu_lfd": "МУП.ТЛП — Лев. передний",
     "bup_dcu_rfd": "МУП.ТПП — Прав. передний",
     "bup_dcu_lrd": "МУП.ТЛЗ — Лев. задний",
@@ -41,420 +54,339 @@ DEVICE_LABELS = {
     "bup_dcu_rst": "МУП.РП — Прав. рулевой",
 }
 
-DEVICE_COLORS = [
-    "#10b981", "#3b82f6", "#f59e0b", "#ef4444",
-    "#8b5cf6", "#06b6d4", "#ec4899",
+DEVICE_COLOR_LIST = [
+    "#10b981",
+    "#3b82f6",
+    "#f59e0b",
+    "#ef4444",
+    "#8b5cf6",
+    "#06b6d4",
+    "#ec4899",
+]
+DEVICE_COLORS = {
+    device_id: DEVICE_COLOR_LIST[index % len(DEVICE_COLOR_LIST)]
+    for index, device_id in enumerate(DEVICE_LABELS)
+}
+
+# Six hours at the normal 10 Hz UI rate. This is only an in-browser safety
+# ceiling for switching traces/themes; the currently visible session is not
+# truncated unless the user explicitly selects a rolling window.
+MAX_BUFFER_POINTS = 216_000
+
+HISTORY_OPTIONS = [
+    {"label": "Вся сессия", "value": 0},
+    {"label": "Последние 5 минут", "value": 3_000},
+    {"label": "Последние 15 минут", "value": 9_000},
+    {"label": "Последний час", "value": 36_000},
 ]
 
-MAX_POINTS = 300
+GRAPH_CONFIG = {
+    "parameter_labels": GRAPHABLE_PARAMS,
+    "parameter_message_types": PARAM_MESSAGE_TYPES,
+    "parameter_series": PARAMETER_SERIES,
+    "device_labels": DEVICE_LABELS,
+    "device_colors": DEVICE_COLORS,
+    "max_buffer_points": MAX_BUFFER_POINTS,
+}
 
-def _hex_to_rgba(hex_str: str, alpha: float) -> str:
-    h = hex_str.lstrip('#')
-    return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {alpha})"
 
-def _label_style():
+def _initial_figure() -> dict:
+    """Keep all three trace slots present before the first WS event arrives."""
     return {
-        "fontSize": "12px", "color": "#64748b",
-        "marginBottom": "6px", "fontWeight": "500",
-        "textTransform": "uppercase", "letterSpacing": "0.5px",
+        "data": [
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "x": [],
+                "y": [],
+                "line": {"width": 0},
+                "hoverinfo": "skip",
+                "showlegend": False,
+                "name": "Минимум",
+            },
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "x": [],
+                "y": [],
+                "line": {"width": 0},
+                "fill": "tonexty",
+                "hoverinfo": "skip",
+                "name": "Диапазон min–max",
+            },
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "x": [],
+                "y": [],
+                "line": {"width": 2},
+                "name": "Среднее",
+            },
+        ],
+        "layout": {"margin": {"l": 60, "r": 20, "t": 50, "b": 50}},
     }
 
-def _dropdown_style():
-    return {
-        "background":   "#1e293b",
-        "border":       "1px solid #334155",
-        "borderRadius": "8px",
-        "color":        "#f1f5f9",
-    }
-
-# ─── Layout ──────────────────────────────────────────────────
 
 graph_layout = html.Div(
     [
-        # Store: {device_id: {param: [values], ts: [timestamps]}}
-        dcc.Store(id="graph-data-store", data={}, storage_type="memory"),
-
-        html.Div(
-            "📈 График телеметрии",
-            style={
-                "fontSize": "20px", "fontWeight": "700",
-                "color": "#f1f5f9", "marginBottom": "20px",
-                "fontFamily": "'Inter', sans-serif",
-            },
+        dcc.Store(id="graph-config-store", data=GRAPH_CONFIG, storage_type="memory"),
+        dcc.Store(
+            id="recording-status-store",
+            data={"state": "idle"},
+            storage_type="memory",
         ),
-
-        # ── Панель управления графиком ──
+        dcc.Interval(id="recording-clock", interval=1_000, n_intervals=0),
+        dcc.Interval(
+            id="recording-status-request",
+            interval=500,
+            n_intervals=0,
+            max_intervals=1,
+        ),
         html.Div(
             [
                 html.Div(
                     [
-                        html.Div("Устройство", style=_label_style()),
+                        html.H1("Телеметрия", className="page-title"),
+                        html.Div(
+                            "Агрегированные параметры приводов в реальном времени",
+                            className="page-description",
+                        ),
+                    ]
+                ),
+                html.Div(
+                    [
+                        html.Button(
+                            "Начать запись",
+                            id="recording-toggle-btn",
+                            n_clicks=0,
+                            className=(
+                                "btn btn-sm btn-outline-primary recording-button"
+                            ),
+                            title="Записать сырую телеметрию в отдельный PKL",
+                        ),
+                        html.Div(
+                            [
+                                html.Div(
+                                    "Новая запись",
+                                    className="recording-panel-title",
+                                ),
+                                html.Label(
+                                    "Продолжительность",
+                                    className="control-label",
+                                ),
+                                dcc.Dropdown(
+                                    id="recording-duration-select",
+                                    options=[
+                                        {
+                                            "label": "До ручной остановки",
+                                            "value": "manual",
+                                        },
+                                        {"label": "1 минута", "value": 60},
+                                        {"label": "5 минут", "value": 300},
+                                        {"label": "10 минут", "value": 600},
+                                        {"label": "30 минут", "value": 1800},
+                                        {"label": "60 минут", "value": 3600},
+                                    ],
+                                    value=300,
+                                    clearable=False,
+                                    className="app-select recording-duration",
+                                ),
+                                html.Label(
+                                    "Название (необязательно)",
+                                    className="control-label recording-label-caption",
+                                ),
+                                dcc.Input(
+                                    id="recording-label-input",
+                                    type="text",
+                                    maxLength=80,
+                                    placeholder="Например: тест углов",
+                                    className="form-control form-control-sm",
+                                ),
+                                html.Div(
+                                    "",
+                                    id="recording-panel-status",
+                                    className="recording-panel-status",
+                                ),
+                                html.Div(
+                                    [
+                                        html.Button(
+                                            "Отмена",
+                                            id="recording-cancel-btn",
+                                            n_clicks=0,
+                                            className="btn btn-sm btn-outline-secondary",
+                                        ),
+                                        html.Button(
+                                            "Начать",
+                                            id="recording-start-btn",
+                                            n_clicks=0,
+                                            className="btn btn-sm btn-primary",
+                                        ),
+                                    ],
+                                    className="recording-panel-actions",
+                                ),
+                            ],
+                            id="recording-panel",
+                            className="surface recording-panel",
+                            hidden=True,
+                        ),
+                    ],
+                    className="recording-control",
+                ),
+            ],
+            className="page-heading",
+        ),
+        html.Div(
+            [
+                html.Div(
+                    [
+                        html.Label("Устройство", className="control-label"),
                         dcc.Dropdown(
                             id="graph-device-select",
                             options=[
-                                {"label": v, "value": k}
-                                for k, v in DEVICE_LABELS.items()
+                                {"label": value, "value": key}
+                                for key, value in DEVICE_LABELS.items()
                             ],
                             value="bup_dcu_lfd",
                             clearable=False,
-                            style=_dropdown_style(),
+                            className="app-select",
                         ),
                     ],
-                    style={"flex": "1", "minWidth": "220px"},
+                    className="control-group",
                 ),
                 html.Div(
                     [
-                        html.Div("Параметр", style=_label_style()),
+                        html.Label("Параметр", className="control-label"),
                         dcc.Dropdown(
                             id="graph-param-select",
                             options=[
-                                {"label": v, "value": k}
-                                for k, v in GRAPHABLE_PARAMS.items()
+                                {"label": value, "value": key}
+                                for key, value in GRAPHABLE_PARAMS.items()
                             ],
-                            value="angle",
+                            value="load_sens_angle",
                             clearable=False,
-                            style=_dropdown_style(),
+                            className="app-select",
                         ),
                     ],
-                    style={"flex": "1", "minWidth": "240px"},
+                    className="control-group control-group-wide",
                 ),
                 html.Div(
                     [
-                        html.Div("Точек", style=_label_style()),
-                        dcc.Slider(
-                            id="graph-points-slider",
-                            min=50, max=300, step=50, value=150,
-                            marks={50: "50", 150: "150", 300: "300"},
-                            tooltip={"placement": "bottom"},
+                        html.Label("История", className="control-label"),
+                        dcc.Dropdown(
+                            id="graph-history-select",
+                            options=HISTORY_OPTIONS,
+                            value=0,
+                            clearable=False,
+                            className="app-select",
                         ),
                     ],
-                    style={"flex": "1", "minWidth": "200px", "paddingTop": "4px"},
+                    className="control-group",
                 ),
                 html.Button(
-                    "🗑 Сброс",
+                    "Сбросить",
                     id="graph-reset-btn",
                     n_clicks=0,
-                    style={
-                        **BUTTON_STYLE,
-                        "height":   "36px",
-                        "alignSelf":"flex-end",
-                        "marginTop":"18px",
-                    },
+                    className="btn btn-sm btn-outline-danger",
                 ),
             ],
-            style={
-                "display":    "flex",
-                "gap":        "20px",
-                "flexWrap":   "wrap",
-                "alignItems": "flex-start",
-                "marginBottom": "20px",
-                "padding":    "16px 20px",
-                "background": "#0f172a",
-                "borderRadius": "12px",
-                "border":     "1px solid #1e293b",
-            },
+            className="surface toolbar",
         ),
-
-        # ── Основной график ──
         dcc.Graph(
             id="live-graph",
-            config={"displayModeBar": True, "scrollZoom": True},
+            figure=_initial_figure(),
+            config={
+                "displayModeBar": True,
+                "displaylogo": False,
+                "responsive": True,
+                "scrollZoom": True,
+            },
+            className="plot-card",
             style={"height": "420px"},
         ),
-
-        # ── Статусная строка ──
-        html.Div(
-            id="graph-status",
-            style={
-                "fontSize": "12px", "color": "#64748b",
-                "marginTop": "8px", "fontFamily": "monospace",
-            },
-        ),
-
-        # ── Мини-таблица последних значений ──
-        html.Div(
-            id="graph-last-values",
-            style={
-                "marginTop":    "20px",
-                "padding":      "16px 20px",
-                "background":   "#0f172a",
-                "borderRadius": "12px",
-                "border":       "1px solid #1e293b",
-            },
-        ),
+        html.Div("", id="graph-status", className="graph-status"),
     ],
-    style={
-        "padding":          "24px",
-        "background":       "#020617",
-        "minHeight":        "100vh",
-        "fontFamily":       "'Inter', 'Segoe UI', sans-serif",
-    },
+    className="page-section",
 )
 
-# ─── Callbacks ───────────────────────────────────────────────
 
 def register_graph_callbacks(app):
-
-    # 1. Накопление данных в graph-data-store
-    @app.callback(
-        Output("graph-data-store", "data"),
+    """Register browser-side callbacks; live points do not visit Dash/Python."""
+    app.clientside_callback(
+        ClientsideFunction(namespace="bro30Graph", function_name="extendTelemetry"),
+        Output("live-graph", "extendData"),
+        Output("graph-status", "children"),
         Input("ws", "message"),
         Input("graph-reset-btn", "n_clicks"),
-        State("graph-data-store", "data"),
-        State("graph-points-slider", "value"),
+        State("graph-device-select", "value"),
+        State("graph-param-select", "value"),
+        State("graph-history-select", "value"),
+        State("graph-config-store", "data"),
         prevent_initial_call=True,
     )
-    def update_graph_store(message, reset_clicks, store, max_pts):
-        triggered = ctx.triggered_id
-        if triggered == "graph-reset-btn":
-            return {}
 
-        if not message:
-            return no_update
-
-        try:
-            msg      = json.loads(message["data"])
-            msg_type = msg.get("type")
-
-            if msg_type == "device_telemetry":
-                payload = msg.get("payload", {})
-                dev_id  = payload.get("device_id")
-                ts      = payload.get("ts_s", 0) + payload.get("ts_ns", 0) * 1e-9
-                if not dev_id:
-                    return no_update
-
-                store = dict(store)
-                if dev_id not in store:
-                    store[dev_id] = {"ts": []}
-
-                dev_buf = dict(store[dev_id])
-                dev_buf.setdefault("ts", [])
-                dev_buf["ts"].append(ts)
-
-                # Сохраняем все числовые параметры
-                for k, v in payload.items():
-                    if isinstance(v, (int, float)) and k not in (
-                        "ts_s", "ts_ns", "raw_id", "dst_id"
-                    ):
-                        dev_buf.setdefault(k, [])
-                        dev_buf[k].append(v)
-
-                # Обрезаем до max_pts
-                limit = max_pts or MAX_POINTS
-                if len(dev_buf["ts"]) > limit:
-                    trim = -limit
-                    for kk in dev_buf:
-                        dev_buf[kk] = dev_buf[kk][trim:]
-
-                store[dev_id] = dev_buf
-                return store
-
-            elif msg_type == "telemetry_history":
-                # Инициализация историей при подключении
-                store = {}
-                for item in msg.get("payload", []):
-                    dev_id = item.get("device_id")
-                    ts     = item.get("ts_s", 0) + item.get("ts_ns", 0) * 1e-9
-                    if not dev_id:
-                        continue
-                    store.setdefault(dev_id, {"ts": []})
-                    store[dev_id]["ts"].append(ts)
-                    for k, v in item.items():
-                        if isinstance(v, (int, float)) and k not in (
-                            "ts_s", "ts_ns", "raw_id", "dst_id"
-                        ):
-                            store[dev_id].setdefault(k, [])
-                            store[dev_id][k].append(v)
-                return store
-
-        except Exception:
-            pass
-        return no_update
-
-    # 2. Рендер графика
-    @app.callback(
-        Output("live-graph",        "figure"),
-        Output("graph-status",      "children"),
-        Output("graph-last-values", "children"),
-        Input("graph-data-store",   "data"),
-        Input("graph-device-select","value"),
+    app.clientside_callback(
+        ClientsideFunction(namespace="bro30Graph", function_name="buildFigure"),
+        Output("live-graph", "figure"),
+        Input("graph-device-select", "value"),
         Input("graph-param-select", "value"),
+        Input("theme-store", "data"),
+        Input("graph-reset-btn", "n_clicks"),
+        Input("graph-history-select", "value"),
+        State("graph-config-store", "data"),
         prevent_initial_call=False,
     )
-    def render_graph(store, device, param):
-        if not store or device not in store:
-            return _empty_figure(f"Нет данных для {DEVICE_LABELS.get(device, device)}"), \
-                   "Ожидание телеметрии...", _no_data_panel()
 
-        dev_buf = store[device]
-        ts_list = dev_buf.get("ts", [])
-        vals    = dev_buf.get(param, [])
-
-        if not vals or not ts_list:
-            return _empty_figure(f"Параметр '{param}' недоступен"), \
-                   f"Параметр '{param}' не найден в пакетах от {device}", _no_data_panel()
-
-        n = min(len(ts_list), len(vals))
-        ts_list = ts_list[-n:]
-        vals    = vals[-n:]
-
-        param_label = GRAPHABLE_PARAMS.get(param, param)
-        dev_label   = DEVICE_LABELS.get(device, device)
-        color_idx   = list(DEVICE_LABELS.keys()).index(device) if device in DEVICE_LABELS else 0
-        color       = DEVICE_COLORS[color_idx % len(DEVICE_COLORS)]
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=ts_list,
-            y=vals,
-            mode="lines",
-            name=param_label,
-            line=dict(color=color, width=2),
-            fill="tozeroy",
-            fillcolor=color.replace(")", ", 0.08)").replace("rgb", "rgba")
-                if "rgb" in color else _hex_to_rgba(color, 0.08),
-        ))
-
-        fig.update_layout(
-            paper_bgcolor="#0f172a",
-            plot_bgcolor="#020617",
-            font=dict(color="#94a3b8", family="Inter, monospace", size=12),
-            title=dict(
-                text=f"{dev_label} — {param_label}",
-                font=dict(color="#f1f5f9", size=15),
-                x=0.01,
-            ),
-            xaxis=dict(
-                title="Время (unix)",
-                gridcolor="#1e293b",
-                linecolor="#334155",
-                tickformat=".1f",
-            ),
-            yaxis=dict(
-                title=param_label,
-                gridcolor="#1e293b",
-                linecolor="#334155",
-            ),
-            margin=dict(l=60, r=20, t=50, b=50),
-            legend=dict(
-                bgcolor="#0f172a",
-                bordercolor="#334155",
-            ),
-            transition={"duration": 150},
-        )
-
-        status = (
-            f"Устройство: {dev_label} | Параметр: {param_label} | "
-            f"Точек: {n} | Последнее: {vals[-1]:.4f}"
-        )
-        last_panel = _last_values_panel(store, device, param)
-        return fig, status, last_panel
-
-    # 3. Обновление опций параметра при смене устройства
-    @app.callback(
-        Output("graph-param-select", "options"),
-        Output("graph-param-select", "value"),
-        Input("graph-device-select", "value"),
-        Input("graph-data-store",    "data"),
-        State("graph-param-select",  "value"),
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="bro30Recording", function_name="receiveStatus"
+        ),
+        Output("recording-status-store", "data"),
+        Input("ws", "message"),
+        State("recording-status-store", "data"),
         prevent_initial_call=True,
     )
-    def update_param_options(device, store, current_param):
-        # Берём только параметры, которые реально есть в данных
-        if store and device in store:
-            available = {
-                k: GRAPHABLE_PARAMS[k]
-                for k in GRAPHABLE_PARAMS
-                if k in store[device] and store[device][k]
-            }
-        else:
-            available = GRAPHABLE_PARAMS
 
-        options = [{"label": v, "value": k} for k, v in available.items()]
-        value   = current_param if current_param in available else (
-            list(available.keys())[0] if available else "angle"
-        )
-        return options, value
-
-
-# ─── Вспомогательные функции ─────────────────────────────────
-
-def _empty_figure(msg: str = "Нет данных"):
-    fig = go.Figure()
-    fig.update_layout(
-        paper_bgcolor="#0f172a",
-        plot_bgcolor="#020617",
-        font=dict(color="#475569"),
-        annotations=[dict(
-            text=msg,
-            x=0.5, y=0.5,
-            xref="paper", yref="paper",
-            showarrow=False,
-            font=dict(size=16, color="#475569"),
-        )],
-        xaxis=dict(gridcolor="#1e293b", linecolor="#334155"),
-        yaxis=dict(gridcolor="#1e293b", linecolor="#334155"),
-        margin=dict(l=60, r=20, t=50, b=50),
-    )
-    return fig
-
-
-def _no_data_panel():
-    return html.Div(
-        "Ожидание данных...",
-        style={"color": "#475569", "fontSize": "13px"},
+    app.clientside_callback(
+        """
+        function (_tick) {
+            return JSON.stringify({
+                action: "get_recording_status",
+                payload: {},
+                request_id: "recording-initial-status",
+            });
+        }
+        """,
+        Output("ws", "send", allow_duplicate=True),
+        Input("recording-status-request", "n_intervals"),
+        prevent_initial_call=True,
     )
 
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="bro30Recording", function_name="renderStatus"
+        ),
+        Output("recording-toggle-btn", "children"),
+        Output("recording-toggle-btn", "className"),
+        Output("recording-toggle-btn", "title"),
+        Output("recording-toggle-btn", "disabled"),
+        Output("recording-panel-status", "children"),
+        Input("recording-status-store", "data"),
+        Input("recording-clock", "n_intervals"),
+    )
 
-def _last_values_panel(store: dict, selected_device: str, selected_param: str):
-    """Таблица последних значений по каждому устройству для выбранного параметра."""
-    rows = [
-        html.Div(
-            "Последние значения по устройствам",
-            style={
-                "color": "#64748b", "fontSize": "12px", "fontWeight": "600",
-                "textTransform": "uppercase", "letterSpacing": "0.5px",
-                "marginBottom": "10px",
-            },
-        )
-    ]
-    for i, (dev_id, label) in enumerate(DEVICE_LABELS.items()):
-        if dev_id not in store:
-            continue
-        vals = store[dev_id].get(selected_param, [])
-        if not vals:
-            continue
-        val   = vals[-1]
-        color = DEVICE_COLORS[i % len(DEVICE_COLORS)]
-        is_selected = dev_id == selected_device
-        rows.append(
-            html.Div(
-                [
-                    html.Span(
-                        "●", style={"color": color, "marginRight": "8px"}
-                    ),
-                    html.Span(
-                        label.split("—")[0].strip(),
-                        style={
-                            "minWidth":   "90px",
-                            "display":    "inline-block",
-                            "color":      "#f1f5f9" if is_selected else "#94a3b8",
-                            "fontWeight": "700" if is_selected else "400",
-                            "fontSize":   "13px",
-                        },
-                    ),
-                    html.Span(
-                        f"{val:.5f}",
-                        style={
-                            "fontFamily": "monospace",
-                            "fontSize":   "13px",
-                            "color":      color if is_selected else "#64748b",
-                        },
-                    ),
-                ],
-                style={"padding": "4px 0"},
-            )
-        )
-    if len(rows) == 1:
-        rows.append(_no_data_panel())
-    return html.Div(rows)
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="bro30Recording", function_name="handleControls"
+        ),
+        Output("ws", "send", allow_duplicate=True),
+        Output("recording-panel", "hidden"),
+        Output("recording-label-input", "value"),
+        Input("recording-toggle-btn", "n_clicks"),
+        Input("recording-start-btn", "n_clicks"),
+        Input("recording-cancel-btn", "n_clicks"),
+        Input("recording-status-store", "data"),
+        State("recording-duration-select", "value"),
+        State("recording-label-input", "value"),
+        State("recording-panel", "hidden"),
+        prevent_initial_call=True,
+    )

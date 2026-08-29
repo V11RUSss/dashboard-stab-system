@@ -1,7 +1,7 @@
 {
 	"InstallScripts" : 
 	[
-		"/home/daniil/Projects/Dashboard/build/cmake_install.cmake"
+		"/home/v11rus/Sync/Projects/Dashboard/Main/build/cmake_install.cmake"
 	],
 	"Parallel" : false
 }

@@ -1,52 +1,43 @@
-import dash
 import os
-from dash import dcc, html
+
+import dash
+from dash import Input, Output, State, dcc, html
 from dash_extensions import WebSocket
-
-from tabs.graph import graph_layout, register_graph_callbacks
-from tabs.editor import editor_layout, register_editor_callbacks
 from tabs.devices import devices_layout, register_devices_callbacks
+from tabs.editor import editor_layout, register_editor_callbacks
+from tabs.graph import graph_layout, register_graph_callbacks
 
-app = dash.Dash(__name__, suppress_callback_exceptions=True)
+app = dash.Dash(
+    __name__,
+    suppress_callback_exceptions=True,
+    update_title=None,
+)
 app.title = "BRO30 Dashboard"
 
 WEBSOCKET_URL = os.environ.get("WEBSOCKET_URL", "ws://localhost:8765")
 
-# Глобальные шрифты через Google Fonts
+# Apply the saved theme before Dash renders to avoid a light/dark flash.
 app.index_string = """
 <!DOCTYPE html>
 <html>
 <head>
     {%metas%}
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{%title%}</title>
     {%favicon%}
+    <script>
+        (function () {
+            const requested = new URLSearchParams(window.location.search).get("theme");
+            const saved = window.localStorage.getItem("bro30-theme");
+            const preferred = window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark" : "light";
+            const selected = ["dark", "light"].includes(requested)
+                ? requested : (saved || preferred);
+            window.localStorage.setItem("bro30-theme", selected);
+            document.documentElement.setAttribute("data-bs-theme", selected);
+        }());
+    </script>
     {%css%}
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #020617; color: #e2e8f0; font-family: 'Inter', sans-serif; }
-        /* Стили для вкладок Dash */
-        .dash-tab { background: #0f172a !important; color: #64748b !important;
-                    border: 1px solid #1e293b !important; border-bottom: none !important;
-                    border-radius: 8px 8px 0 0 !important;
-                    padding: 10px 24px !important; font-family: 'Inter', sans-serif !important;
-                    font-size: 14px !important; font-weight: 500 !important; }
-        .dash-tab--selected { background: #1e293b !important; color: #f1f5f9 !important;
-                               border-color: #334155 !important; }
-        .dash-tabs { border-bottom: 1px solid #1e293b !important; margin-bottom: 0 !important; }
-        /* Dropdown тёмная тема */
-        .Select-control { background: #1e293b !important; border-color: #334155 !important; }
-        .Select-value-label { color: #f1f5f9 !important; }
-        .Select-menu-outer { background: #1e293b !important; border-color: #334155 !important; }
-        .Select-option { background: #1e293b !important; color: #f1f5f9 !important; }
-        .Select-option:hover { background: #334155 !important; }
-        .Select-option.is-selected { background: #3b82f6 !important; }
-        /* Scrollbar */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    </style>
 </head>
 <body>
     {%app_entry%}
@@ -55,47 +46,188 @@ app.index_string = """
 </html>
 """
 
+
 app.layout = html.Div(
     [
-        # WS подключение
         WebSocket(id="ws", url=WEBSOCKET_URL),
-
-        # Заголовок
-        html.Div(
-            [
-                html.Span("🤖", style={"fontSize": "24px", "marginRight": "10px"}),
-                html.Span("BRO30 Dashboard",
-                          style={"fontSize": "20px", "fontWeight": "700",
-                                 "color": "#f1f5f9", "letterSpacing": "-0.3px"}),
-                html.Span("MicroJet протокол",
-                          style={"fontSize": "12px", "color": "#475569",
-                                 "marginLeft": "16px", "alignSelf": "center"}),
-            ],
-            style={
-                "display":     "flex",
-                "alignItems":  "center",
-                "padding":     "16px 28px",
-                "borderBottom":"1px solid #1e293b",
-                "background":  "#0a0f1e",
-            },
+        # Route the shared high-rate WebSocket stream in the browser first.
+        # Server-side callbacks then receive only the event families they use;
+        # telemetry intended for Plotly never creates Flask/Dash POST traffic.
+        dcc.Store(id="devices-live-event", storage_type="memory"),
+        dcc.Store(id="devices-ws-event", storage_type="memory"),
+        dcc.Store(id="editor-ws-event", storage_type="memory"),
+        dcc.Store(id="theme-store", storage_type="local"),
+        html.Header(
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Span("B30", className="brand-mark"),
+                            html.Div(
+                                [
+                                    html.Div("BRO30 Dashboard", className="brand-title"),
+                                    html.Div("MicroJet monitor", className="brand-subtitle"),
+                                ]
+                            ),
+                        ],
+                        className="brand",
+                    ),
+                    html.Button(
+                        "Тема",
+                        id="theme-toggle",
+                        n_clicks=0,
+                        className="btn btn-sm btn-outline-secondary theme-toggle",
+                        title="Переключить цветовую тему",
+                    ),
+                ],
+                className="app-container app-navbar-inner",
+            ),
+            className="app-navbar",
         ),
-
-        # Вкладки
-        dcc.Tabs(
-            [
-                dcc.Tab(label="📈 График",    children=[graph_layout],   className="dash-tab"),
-                dcc.Tab(label="🤖 Устройства",children=[devices_layout], className="dash-tab"),
-                dcc.Tab(label="📝 Скрипты",   children=[editor_layout],  className="dash-tab"),
-            ],
-            colors={"border": "#1e293b", "primary": "#3b82f6", "background": "#020617"},
+        html.Main(
+            dcc.Tabs(
+                [
+                    dcc.Tab(
+                        label="Телеметрия",
+                        value="telemetry",
+                        children=[graph_layout],
+                        className="app-tab",
+                        selected_className="app-tab app-tab-selected",
+                    ),
+                    dcc.Tab(
+                        label="Устройства",
+                        value="devices",
+                        children=[devices_layout],
+                        className="app-tab",
+                        selected_className="app-tab app-tab-selected",
+                    ),
+                    dcc.Tab(
+                        label="Скрипты",
+                        value="scripts",
+                        children=[editor_layout],
+                        className="app-tab",
+                        selected_className="app-tab app-tab-selected",
+                    ),
+                ],
+                id="main-tabs",
+                value="telemetry",
+                className="app-tabs",
+            ),
+            className="app-container app-main",
         ),
     ],
-    style={"background": "#020617", "minHeight": "100vh"},
+    className="app-shell",
 )
+
+
+app.clientside_callback(
+    """
+    function (message) {
+        const noUpdate = window.dash_clientside.no_update;
+        if (!message || typeof message.data !== "string") {
+            return [noUpdate, noUpdate, noUpdate];
+        }
+
+        let event;
+        try {
+            event = JSON.parse(message.data);
+        } catch (_error) {
+            return [noUpdate, noUpdate, noUpdate];
+        }
+
+        const eventType = event && event.type;
+        const liveDeviceEvents = new Set([
+            "devices_snapshot",
+            "devices_batch",
+            "device_telemetry",
+            "system_status",
+        ]);
+        const deviceEvents = new Set([
+            "devices_snapshot",
+            "devices_batch",
+            "device_telemetry",
+            "control_catalog",
+            "control_snapshot",
+            "control_context",
+            "control_response",
+            "request_error",
+            "request_ok",
+        ]);
+        const editorEvents = new Set([
+            "file_list",
+            "file_content",
+            "editor_console",
+            "script_result",
+            "request_error",
+        ]);
+
+        // Full telemetry details are deliberately refreshed at 1 Hz.  The
+        // separate live route above still refreshes ONLINE/OFFLINE as soon as
+        // every 500 ms heartbeat arrives.
+        const routeState = window.__bro30WsRouteState || {lastDeviceUiAt: 0};
+        window.__bro30WsRouteState = routeState;
+        let deviceMessage = deviceEvents.has(eventType) ? message : noUpdate;
+        if (eventType === "devices_batch") {
+            const now = Date.now();
+            if (now - routeState.lastDeviceUiAt < 1000) {
+                deviceMessage = noUpdate;
+            } else {
+                routeState.lastDeviceUiAt = now;
+            }
+        }
+
+        return [
+            liveDeviceEvents.has(eventType) ? message : noUpdate,
+            deviceMessage,
+            editorEvents.has(eventType) ? message : noUpdate,
+        ];
+    }
+    """,
+    Output("devices-live-event", "data"),
+    Output("devices-ws-event", "data"),
+    Output("editor-ws-event", "data"),
+    Input("ws", "message"),
+    prevent_initial_call=True,
+)
+
+
+app.clientside_callback(
+    """
+    function (clicks, currentTheme) {
+        const stored = window.localStorage.getItem("bro30-theme");
+        const preferred = window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark" : "light";
+        const active = currentTheme || stored || preferred;
+        if (!clicks) {
+            return active;
+        }
+        return active === "dark" ? "light" : "dark";
+    }
+    """,
+    Output("theme-store", "data"),
+    Input("theme-toggle", "n_clicks"),
+    State("theme-store", "data"),
+)
+
+app.clientside_callback(
+    """
+    function (theme) {
+        const resolved = theme || "dark";
+        document.documentElement.setAttribute("data-bs-theme", resolved);
+        window.localStorage.setItem("bro30-theme", resolved);
+        return resolved === "dark" ? "Светлая тема" : "Тёмная тема";
+    }
+    """,
+    Output("theme-toggle", "children"),
+    Input("theme-store", "data"),
+)
+
 
 register_graph_callbacks(app)
 register_devices_callbacks(app)
 register_editor_callbacks(app)
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8050, debug=True, use_reloader=False)
+    debug = os.environ.get("DASH_DEBUG", "false").lower() in {"1", "true", "yes"}
+    app.run(host="0.0.0.0", port=8050, debug=debug, use_reloader=False)

@@ -6,18 +6,50 @@ mj_decoder.py — ctypes-декодер бинарных MJ-структур BRO
 """
 
 import ctypes
-import struct
 import logging
+import math
+import struct
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
+
+def _round_finite(value: float, digits: int) -> float | None:
+    value = float(value)
+    return round(value, digits) if math.isfinite(value) else None
+
 # ── TLV типы (должны совпадать с gateway/src/config.hpp) ─────
 TLV_DCU_TEL   = 0x01
 TLV_BUP_STATE = 0x02
+TLV_CMD_ANS = 0x03
+TLV_MSG_ANS = 0x04
+TLV_PRM_ANS = 0x05
+TLV_FORMULAR = 0x06
+TLV_CONTROL_ACK = 0x10
 
 TLV_HEADER_FMT  = "<BHHII H"  # type src_id dst_id ts_s ts_ns length
 TLV_HEADER_SIZE = struct.calcsize(TLV_HEADER_FMT)  # = 15
+
+TLV_PAYLOAD_SIZES = {
+    # Generated sizeof(dcu_telemetry_t): 235 field bytes + 1 tail padding byte.
+    TLV_DCU_TEL: 236,
+    TLV_BUP_STATE: 60,
+    TLV_CMD_ANS: 44,
+    TLV_MSG_ANS: 12,
+    TLV_PRM_ANS: 40,
+    TLV_FORMULAR: 264,
+    TLV_CONTROL_ACK: 8,
+}
+
+TLV_MESSAGE_NAMES = {
+    TLV_DCU_TEL: "dcu_telemetry",
+    TLV_BUP_STATE: "bup_state",
+    TLV_CMD_ANS: "command_answer",
+    TLV_MSG_ANS: "message_answer",
+    TLV_PRM_ANS: "parameter_answer",
+    TLV_FORMULAR: "formular",
+    TLV_CONTROL_ACK: "control_ack",
+}
 
 # ── Карта ID устройств ────────────────────────────────────────
 DEVICE_NAMES = {
@@ -41,7 +73,8 @@ DCU_STATUS = {
 DRV_CTRL_MODE = {
     0: "UNKNOWN", 1: "OFF",     2: "FREEMOVE", 3: "HOLD",
     4: "ANGLE",   5: "SPEED",   6: "RSPEED",   7: "VOLTAGE",
-    8: "SYNCHRO", 9: "CURRENT",
+    8: "SYNCHRO", 9: "CURRENT", 10: "VOLTAGE_A", 11: "VOLTAGE_B",
+    12: "VOLTAGE_C",
 }
 DRV_CTRL_ERROR = {
     0: "UNKNOWN", 1: "NONE",  2: "BLOCK", 3: "OFF",   4: "POWER",
@@ -53,13 +86,43 @@ BRAKE_STATE  = {0: "UNKNOWN", 1: "CLOSE", 2: "RELEASE", 3: "FAIL"}
 SENS_STATUS  = {0: "UNKNOW", 1: "PREPARE", 2: "UNCONNECTED", 3: "NORMAL", 4: "WARNING", -1: "FAULT"}
 RELAY_STATE  = {0: "UNKNOWN", 5: "HIGH", 1: "LOW", 3: "GAP", -1: "OCP", -2: "FAIL"}
 MOVE_LIMIT   = {0: "UNKNOW", 1: "NONE", 2: "LIMIT_UP", 3: "LIMIT_DOWN"}
+COMMAND_STATE = {
+    0: "ACCEPT", 1: "INPROGRESS", 2: "DONE", 3: "UNKNOW",
+    4: "FORBITTEN", -4: "NOT_IMPLEMENTED", -5: "ERROR",
+}
+COMMAND_TYPE = {
+    0: "SWRESET", 1: "SAVEPRM", 2: "SET_HOME_POSITION",
+    3: "SET_UP_LIMIT", 4: "SET_DOWN_LIMIT", 5: "SET_EL_ZERO",
+    6: "OPERATION_TIME_RESET", 7: "INTEGRATOR_RESET",
+    8: "FIRMWARE_UPGRADE", 9: "FIRMWARE_VERIFY",
+    10: "CURRENT_SENSOR_CALIB",
+}
+MESSAGE_STATE = {
+    0: "CONFIRMED", 1: "SEND", -1: "WRONGCODE",
+    -2: "ISPERIODIC", -3: "IMPOSSIBLE",
+}
+PARAMETER_STATUS = {
+    0: "OK", -1: "UNKNOWPRM", -4: "WRITE_FAILED",
+    -5: "READ_ONLY", -6: "NOT_SUPPORTED",
+}
+CONTROL_ACK_STATUS = {
+    0: "SENT", 1: "SERVICE_STARTED", 2: "SERVICE_UPDATED",
+    3: "SERVICE_STOPPED", 4: "SERVICE_LEASE_EXPIRED",
+    -1: "INVALID_FRAME", -2: "INVALID_TARGET", -3: "INVALID_VALUE",
+    -4: "NOT_READY", -5: "SERVICE_CONFLICT",
+}
+CONTROL_OPCODE = {
+    1: "command_request", 2: "message_request", 3: "parameter_request",
+    4: "service_start", 5: "service_update", 6: "service_stop",
+    7: "service_keepalive",
+}
 
 
 # ── ctypes structures ─────────────────────────────────────────
 
 class _PidState(ctypes.LittleEndianStructure):
     _pack_  = 1
-    _fields_ = [
+    _fields_ = [  # noqa: RUF012 - required by ctypes.Structure
         ("err",          ctypes.c_float),
         ("cor_err",      ctypes.c_float),
         ("feed_forward", ctypes.c_float),
@@ -71,8 +134,8 @@ class _PidState(ctypes.LittleEndianStructure):
 
     def to_dict(self):
         return {
-            "err":   round(self.err, 6),
-            "out":   round(self.out, 6),
+            "err":   _round_finite(self.err, 6),
+            "out":   _round_finite(self.out, 6),
         }
 
 
@@ -82,7 +145,7 @@ class _DcuTelemetry(ctypes.LittleEndianStructure):
     Padding добавлен явными полями.
     """
     _pack_  = 1
-    _fields_ = [
+    _fields_ = [  # noqa: RUF012 - required by ctypes.Structure
         ("mode",               ctypes.c_int8),
         ("status",             ctypes.c_int8),
         ("err",                ctypes.c_int8),
@@ -133,7 +196,7 @@ class _BupDrvState(ctypes.LittleEndianStructure):
     Layout из mjtypes.c bup_drv_state_type_check.
     """
     _pack_  = 1
-    _fields_ = [
+    _fields_ = [  # noqa: RUF012 - required by ctypes.Structure
         ("mode",             ctypes.c_int8),    # offset 0
         ("error",            ctypes.c_int8),    # offset 1
         ("status",           ctypes.c_int8),    # offset 2
@@ -189,13 +252,103 @@ def _device_info(dev_id: int) -> dict:
     return {"device_id": key, "shortname": short, "description": desc, "raw_id": dev_id}
 
 
+def _message_base(kind: str, src_id: int, dst_id: int,
+                  ts_s: int, ts_ns: int) -> dict:
+    return {
+        "msg_type": kind,
+        "timestamp": datetime.fromtimestamp(
+            ts_s + ts_ns * 1e-9, tz=timezone.utc
+        ).isoformat(),
+        "ts_s": ts_s,
+        "ts_ns": ts_ns,
+        **_device_info(src_id),
+        "dst_id": dst_id,
+    }
+
+
+def _decode_cp866(raw: bytes) -> str:
+    return raw.split(b"\0", 1)[0].decode("cp866", errors="replace").strip()
+
+
+def decode_command_answer(raw: bytes, src_id: int, dst_id: int,
+                          ts_s: int, ts_ns: int) -> dict:
+    command, state, request_counter, info = struct.unpack("<iiI32s", raw)
+    return {
+        **_message_base("command_answer", src_id, dst_id, ts_s, ts_ns),
+        "command": COMMAND_TYPE.get(command, command),
+        "command_raw": command,
+        "state": COMMAND_STATE.get(state, state),
+        "state_raw": state,
+        "request_counter": request_counter,
+        "info": _decode_cp866(info),
+    }
+
+
+def decode_message_answer(raw: bytes, src_id: int, dst_id: int,
+                          ts_s: int, ts_ns: int) -> dict:
+    message_id, request_counter, state = struct.unpack("<H2xIi", raw)
+    return {
+        **_message_base("message_answer", src_id, dst_id, ts_s, ts_ns),
+        "message_id": message_id,
+        "request_counter": request_counter,
+        "state": MESSAGE_STATE.get(state, state),
+        "state_raw": state,
+    }
+
+
+def decode_parameter_answer(raw: bytes, src_id: int, dst_id: int,
+                            ts_s: int, ts_ns: int) -> dict:
+    parameter_id, status, value = struct.unpack("<Ii32s", raw)
+    return {
+        **_message_base("parameter_answer", src_id, dst_id, ts_s, ts_ns),
+        "parameter_id": parameter_id,
+        "status": PARAMETER_STATUS.get(status, status),
+        "status_raw": status,
+        "value_hex": value.hex(),
+    }
+
+
+def decode_formular(raw: bytes, src_id: int, dst_id: int,
+                    ts_s: int, ts_ns: int) -> dict:
+    fields = struct.unpack("<32s32s32s32s32s32si64sB3x", raw)
+    return {
+        **_message_base("formular", src_id, dst_id, ts_s, ts_ns),
+        "product_description": _decode_cp866(fields[0]),
+        "factory_number": _decode_cp866(fields[1]),
+        "factory_date": _decode_cp866(fields[2]),
+        "software_version": _decode_cp866(fields[3]),
+        "protocol_version": _decode_cp866(fields[4]),
+        "guid": _decode_cp866(fields[5]),
+        "operation_time": fields[6],
+        "software_checksum": _decode_cp866(fields[7]),
+        "code": fields[8],
+    }
+
+
+def decode_control_ack(raw: bytes, src_id: int, dst_id: int,
+                       ts_s: int, ts_ns: int) -> dict:
+    request_id, opcode, status, counter = struct.unpack("<IBbH", raw)
+    return {
+        **_message_base("control_ack", src_id, dst_id, ts_s, ts_ns),
+        "gateway_request_id": request_id,
+        "opcode": CONTROL_OPCODE.get(opcode, opcode),
+        "opcode_raw": opcode,
+        "status": CONTROL_ACK_STATUS.get(status, status),
+        "status_raw": status,
+        "microjet_counter": counter,
+    }
+
+
 def decode_dcu_telemetry(raw: bytes, src_id: int, dst_id: int,
                           ts_s: int, ts_ns: int) -> dict:
-    if len(raw) < ctypes.sizeof(_DcuTelemetry):
-        logger.warning("dcu_tel too short: %d", len(raw))
+    expected_size = TLV_PAYLOAD_SIZES[TLV_DCU_TEL]
+    if len(raw) != expected_size:
+        logger.warning("dcu_tel wrong size: %d, expected %d", len(raw), expected_size)
         return {}
 
-    s = _DcuTelemetry.from_buffer_copy(raw[:ctypes.sizeof(_DcuTelemetry)])
+    # ctypes structure models the 235 meaningful bytes. The final wire byte is
+    # native tail padding included by sizeof(dcu_telemetry_t) in generated C.
+    s = _DcuTelemetry.from_buffer_copy(raw[: ctypes.sizeof(_DcuTelemetry)])
     ts = datetime.fromtimestamp(ts_s + ts_ns * 1e-9, tz=timezone.utc).isoformat()
 
     d = {
@@ -208,45 +361,58 @@ def decode_dcu_telemetry(raw: bytes, src_id: int, dst_id: int,
 
         # Состояние
         "mode":              DRV_CTRL_MODE.get(s.mode, s.mode),
+        "mode_raw":          s.mode,
         "status":            DCU_STATUS.get(s.status, s.status),
+        "status_raw":        s.status,
         "error":             DRV_CTRL_ERROR.get(s.err, s.err),
+        "error_raw":         s.err,
         "brake_state":       BRAKE_STATE.get(s.brake_state, s.brake_state),
+        "brake_state_raw":   s.brake_state,
 
         # Механические величины
-        "load_sens_angle":   round(s.load_sens_angle, 5),
-        "load_sens_speed":   round(s.load_sens_speed, 5),
-        "rotor_sens_angle":  round(s.rotor_sens_angle, 5),
-        "rotor_sens_speed":  round(s.rotor_sens_speed, 5),
+        "load_sens_angle":   _round_finite(s.load_sens_angle, 5),
+        "load_sens_speed":   _round_finite(s.load_sens_speed, 5),
+        "rotor_sens_angle":  _round_finite(s.rotor_sens_angle, 5),
+        "rotor_sens_speed":  _round_finite(s.rotor_sens_speed, 5),
         "load_sens_state":   SENS_STATUS.get(s.load_sens_state, s.load_sens_state),
+        "load_sens_state_raw": s.load_sens_state,
         "rotor_sens_state":  SENS_STATUS.get(s.rotor_sens_state, s.rotor_sens_state),
+        "rotor_sens_state_raw": s.rotor_sens_state,
 
         # Электрические величины
-        "power_vdc":         round(s.power_vdc, 3),
-        "power_voltage":     round(s.power_voltage, 3),
-        "electrical_power":  round(s.electrical_power, 3),
-        "ibrk":              round(s.ibrk, 4),
-        "stator_temp":       round(s.stator_temp, 2),
+        "power_vdc":         _round_finite(s.power_vdc, 3),
+        "power_voltage":     _round_finite(s.power_voltage, 3),
+        "electrical_power":  _round_finite(s.electrical_power, 3),
+        "ibrk":              _round_finite(s.ibrk, 4),
+        "stator_temp":       _round_finite(s.stator_temp, 2),
 
         # Токи
-        "current_a":         round(s.current_a, 4),
-        "current_b":         round(s.current_b, 4),
-        "current_c":         round(s.current_c, 4),
-        "pwm_a":             round(s.pwm_a, 4),
-        "pwm_b":             round(s.pwm_b, 4),
-        "pwm_c":             round(s.pwm_c, 4),
-        "park_voltage_d":    round(s.park_voltage_d, 4),
-        "park_voltage_q":    round(s.park_voltage_q, 4),
-        "park_current_d":    round(s.park_current_d, 4),
-        "park_current_q":    round(s.park_current_q, 4),
+        "current_a":         _round_finite(s.current_a, 4),
+        "current_b":         _round_finite(s.current_b, 4),
+        "current_c":         _round_finite(s.current_c, 4),
+        "pwm_a":             _round_finite(s.pwm_a, 4),
+        "pwm_b":             _round_finite(s.pwm_b, 4),
+        "pwm_c":             _round_finite(s.pwm_c, 4),
+        "park_voltage_d":    _round_finite(s.park_voltage_d, 4),
+        "park_voltage_q":    _round_finite(s.park_voltage_q, 4),
+        "park_current_d":    _round_finite(s.park_current_d, 4),
+        "park_current_q":    _round_finite(s.park_current_q, 4),
 
         # Реле
         "on":        RELAY_STATE.get(s.on, s.on),
+        "on_raw":    s.on,
         "manual":    RELAY_STATE.get(s.manual, s.manual),
+        "manual_raw": s.manual,
         "block":     RELAY_STATE.get(s.block, s.block),
+        "block_raw": s.block,
         "sync":      RELAY_STATE.get(s.sync, s.sync),
+        "sync_raw":  s.sync,
         "inv_octw":  RELAY_STATE.get(s.inv_octw, s.inv_octw),
+        "inv_octw_raw": s.inv_octw,
         "inv_fault": RELAY_STATE.get(s.inv_fault, s.inv_fault),
+        "inv_fault_raw": s.inv_fault,
         "en_gate":   RELAY_STATE.get(s.en_gate, s.en_gate),
+        "en_gate_raw": s.en_gate,
 
         # PID (компактно: только err и out)
         "ang_pid":        s.ang_pid.to_dict(),
@@ -260,11 +426,12 @@ def decode_dcu_telemetry(raw: bytes, src_id: int, dst_id: int,
 
 def decode_bup_state(raw: bytes, src_id: int, dst_id: int,
                       ts_s: int, ts_ns: int) -> dict:
-    if len(raw) < ctypes.sizeof(_BupDrvState):
-        logger.warning("bup_state too short: %d", len(raw))
+    expected_size = ctypes.sizeof(_BupDrvState)
+    if len(raw) != expected_size:
+        logger.warning("bup_state wrong size: %d, expected %d", len(raw), expected_size)
         return {}
 
-    s = _BupDrvState.from_buffer_copy(raw[:ctypes.sizeof(_BupDrvState)])
+    s = _BupDrvState.from_buffer_copy(raw)
     ts = datetime.fromtimestamp(ts_s + ts_ns * 1e-9, tz=timezone.utc).isoformat()
 
     d = {
@@ -277,27 +444,34 @@ def decode_bup_state(raw: bytes, src_id: int, dst_id: int,
 
         # Состояние
         "mode":              DRV_CTRL_MODE.get(s.mode, s.mode),
+        "mode_raw":          s.mode,
         "status":            DCU_STATUS.get(s.status, s.status),
+        "status_raw":        s.status,
         "error":             DRV_CTRL_ERROR.get(s.error, s.error),
+        "error_raw":         s.error,
         "limit":             MOVE_LIMIT.get(s.limit, s.limit),
+        "limit_raw":         s.limit,
         "brake_state":       BRAKE_STATE.get(s.brake_state, s.brake_state),
+        "brake_state_raw":   s.brake_state,
         "load_sens_state":   SENS_STATUS.get(s.load_sens_state, s.load_sens_state),
+        "load_sens_state_raw": s.load_sens_state,
         "rotor_sens_state":  SENS_STATUS.get(s.rotor_sens_state, s.rotor_sens_state),
+        "rotor_sens_state_raw": s.rotor_sens_state,
 
         # Механические
-        "angle":             round(s.angle, 5),
-        "speed":             round(s.speed, 5),
-        "stator_temp":       round(s.stator_temp, 2),
-        "load_sens_angle":   round(s.load_sens_angle, 5),
-        "load_sens_speed":   round(s.load_sens_speed, 5),
-        "rotor_sens_angle":  round(s.rotor_sens_angle, 5),
-        "rotor_sens_speed":  round(s.rotor_sens_speed, 5),
+        "angle":             _round_finite(s.angle, 5),
+        "speed":             _round_finite(s.speed, 5),
+        "stator_temp":       _round_finite(s.stator_temp, 2),
+        "load_sens_angle":   _round_finite(s.load_sens_angle, 5),
+        "load_sens_speed":   _round_finite(s.load_sens_speed, 5),
+        "rotor_sens_angle":  _round_finite(s.rotor_sens_angle, 5),
+        "rotor_sens_speed":  _round_finite(s.rotor_sens_speed, 5),
 
         # Электрические
-        "power_voltage":     round(s.power_voltage, 3),
-        "id":                round(s.id, 4),
-        "iq":                round(s.iq, 4),
-        "electrical_power":  round(s.electrical_power, 3),
+        "power_voltage":     _round_finite(s.power_voltage, 3),
+        "id":                _round_finite(s.id, 4),
+        "iq":                _round_finite(s.iq, 4),
+        "electrical_power":  _round_finite(s.electrical_power, 3),
     }
     return d
 
@@ -308,10 +482,29 @@ def decode(tlv_header: dict, payload: bytes) -> dict | None:
     src, dst = tlv_header["src_id"], tlv_header["dst_id"]
     ts_s, ts_ns = tlv_header["ts_s"], tlv_header["ts_ns"]
 
-    if t == TLV_DCU_TEL:
-        return decode_dcu_telemetry(payload, src, dst, ts_s, ts_ns)
-    elif t == TLV_BUP_STATE:
-        return decode_bup_state(payload, src, dst, ts_s, ts_ns)
-    else:
+    expected_size = TLV_PAYLOAD_SIZES.get(t)
+    if expected_size is None:
         logger.debug("Unknown TLV type: 0x%02X", t)
         return None
+    if len(payload) != expected_size:
+        logger.warning(
+            "Wrong payload size for %s: %d, expected %d",
+            TLV_MESSAGE_NAMES[t], len(payload), expected_size,
+        )
+        return None
+
+    if t == TLV_DCU_TEL:
+        return decode_dcu_telemetry(payload, src, dst, ts_s, ts_ns)
+    if t == TLV_BUP_STATE:
+        return decode_bup_state(payload, src, dst, ts_s, ts_ns)
+    if t == TLV_CMD_ANS:
+        return decode_command_answer(payload, src, dst, ts_s, ts_ns)
+    if t == TLV_MSG_ANS:
+        return decode_message_answer(payload, src, dst, ts_s, ts_ns)
+    if t == TLV_PRM_ANS:
+        return decode_parameter_answer(payload, src, dst, ts_s, ts_ns)
+    if t == TLV_FORMULAR:
+        return decode_formular(payload, src, dst, ts_s, ts_ns)
+    if t == TLV_CONTROL_ACK:
+        return decode_control_ack(payload, src, dst, ts_s, ts_ns)
+    return None

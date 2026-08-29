@@ -83,6 +83,7 @@ typedef struct{
     bool enable;
     int socket;
     int core;
+    bool is_running;
     struct sockaddr_ll socket_address;
 }tx_conf;
 
@@ -113,9 +114,10 @@ bool getTxStatus();
 
 void setTxStatus(bool value);
 
-mj_msg_proc_res_t processPacket(uint8_t * buffer, uint64_t time_us);
+mj_msg_proc_res_t processPacket(uint8_t * buffer, size_t buffer_size, uint64_t time_us);
 
-bool bufferHandler(uint8_t * buffer, void ** payload,size_t * payload_size,  mj_msg_proc_fcn (*fnc));
+bool bufferHandler(uint8_t * buffer, size_t buffer_size, void ** payload,
+                   size_t * payload_size, mj_msg_proc_fcn (*fnc));
 
 bool getRxStatus();
 

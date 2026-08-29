@@ -27,6 +27,8 @@ int main() {
         #ifdef REAL_MODE_ENABLED
         RealReceiver rx(IFACE_NAME, fwd);
         rx.run();
+        // Stop the callback-producing TCP thread while rx is still alive.
+        fwd.stop();
         #else
         fprintf(stderr, "ERROR: Gateway compiled without REAL_MODE support!\n");
         return 1;
@@ -35,6 +37,7 @@ int main() {
         // Default: sim mode
         SimReceiver rx(SIM_LISTEN_ADDR, SIM_LISTEN_PORT, fwd);
         rx.run();
+        fwd.stop();
     }
 
     fwd.stop();

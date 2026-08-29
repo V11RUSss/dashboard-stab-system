@@ -30,6 +30,14 @@ services:
     network_mode: host
     volumes:
       - ../backend/storage:/app/storage
+      - ../gateway/bro_spec.json:/app/protocol/bro_spec.json:ro
+      - ../gateway/microjetlib/inc/mjsysspec.h:/app/protocol/mjsysspec.h:ro
+      - ../gateway/microjetlib/bup_dcu_lfd/mj_bup_dcu_lfd_spec.c:/app/protocol/mj_bup_dcu_lfd_spec.c:ro
+    environment:
+      - RECORDING_MIN_FREE_GB=${RECORDING_MIN_FREE_GB:-10}
+      - BRO_SPEC_PATH=/app/protocol/bro_spec.json
+      - MJ_SYS_SPEC_PATH=/app/protocol/mjsysspec.h
+      - MJ_DCU_SPEC_PATH=/app/protocol/mj_bup_dcu_lfd_spec.c
     restart: unless-stopped
 
   # ── Gateway (C++, REAL режим) ─────────────────────────────────
@@ -50,7 +58,7 @@ services:
       - GATEWAY_MODE=real
       - BACKEND_ADDR=127.0.0.1
       - BACKEND_PORT=8888
-      - IFACE_NAME=${IFACE:-enxec9a0c1480a6}
+      - IFACE_NAME=veth1
     restart: unless-stopped
     depends_on:
       - backend

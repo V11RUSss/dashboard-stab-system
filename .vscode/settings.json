@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "/home/daniil/Projects/Dashboard/gateway"
+    "cmake.sourceDirectory": "/home/v11rus/Sync/Projects/Dashboard/Main/gateway",
+    "C_Cpp.default.compilerPath": "/usr/bin/g++"
 }

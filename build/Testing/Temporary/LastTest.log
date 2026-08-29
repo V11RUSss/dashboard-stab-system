@@ -1,0 +1,18 @@
+Start testing: Aug 15 18:49 MSK
+----------------------------------------------------------
+1/1 Testing: gateway_protocol_tests
+1/1 Test: gateway_protocol_tests
+Command: "/home/v11rus/Sync/Projects/Dashboard/Main/build/gateway_protocol_tests"
+Directory: /home/v11rus/Sync/Projects/Dashboard/Main/build
+"gateway_protocol_tests" start time: Aug 15 18:49 MSK
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"gateway_protocol_tests" end time: Aug 15 18:49 MSK
+"gateway_protocol_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Aug 15 18:49 MSK

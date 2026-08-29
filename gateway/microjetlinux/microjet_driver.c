@@ -274,6 +274,7 @@ int setThreadAffininty(pthread_t thread_id, int thread_core, struct sched_param 
 
 void * transmitFunction(void *arg){
     tx.thread_id = pthread_self();
+    tx.is_running = true;
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
@@ -333,31 +334,68 @@ CallbackInfo * getCallbacks(){
     return callbacks;
 }
 
-bool bufferHandler(uint8_t * buffer, void ** payload,size_t * payload_size, mj_msg_proc_fcn (*fnc)){
-    bool check_result = false;
-    struct iphdr *iph = (struct iphdr *) (buffer + sizeof(struct ether_header));
-    struct udphdr *udph = (struct udphdr *) (buffer + sizeof(struct iphdr) + sizeof(struct ether_header));
-    if (current_eth_if == NULL) {
+bool bufferHandler(uint8_t * buffer, size_t buffer_size, void ** payload,
+                   size_t * payload_size, mj_msg_proc_fcn (*fnc)){
+    const size_t eth_size = sizeof(struct ether_header);
+    if (!buffer || !payload || !payload_size || !fnc || current_eth_if == NULL) {
         return false;
     }
-    if(iph->protocol == 17 && iph->saddr != current_eth_if->ip){
-        for(int j = 0; j < num_callbacks; j++){
-            if(iph->daddr == callbacks[j].dest_ip){
-                if(udph->dest == callbacks[j].dest_port){
-                    *payload = (buffer +sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct udphdr));
-                    *payload_size = ntohs(udph->len)-sizeof(struct udphdr);
-                    *fnc = callbacks[j].cb;
-                    check_result = true;
-                    break;
-                }
-            }
+    if (buffer_size < eth_size + sizeof(struct iphdr)) {
+        return false;
+    }
+
+    struct ether_header *eth = (struct ether_header *)buffer;
+    if (ntohs(eth->ether_type) != ETH_P_IP) {
+        return false;
+    }
+
+    struct iphdr *iph = (struct iphdr *)(buffer + eth_size);
+    if (iph->version != 4 || iph->ihl < 5 || iph->protocol != IPPROTO_UDP) {
+        return false;
+    }
+
+    const size_t ip_header_size = (size_t)iph->ihl * 4u;
+    if (ip_header_size > buffer_size - eth_size ||
+        buffer_size < eth_size + ip_header_size + sizeof(struct udphdr)) {
+        return false;
+    }
+
+    const size_t ip_total_size = ntohs(iph->tot_len);
+    if (ip_total_size < ip_header_size + sizeof(struct udphdr) ||
+        ip_total_size > buffer_size - eth_size) {
+        return false;
+    }
+
+    // Fragment reassembly is not implemented by this raw PF_PACKET driver.
+    if ((ntohs(iph->frag_off) & 0x3FFFu) != 0) {
+        return false;
+    }
+
+    struct udphdr *udph = (struct udphdr *)(buffer + eth_size + ip_header_size);
+    const size_t udp_size = ntohs(udph->len);
+    if (udp_size < sizeof(struct udphdr) ||
+        udp_size > ip_total_size - ip_header_size) {
+        return false;
+    }
+
+    if (current_eth_if->ip != 0 && iph->saddr == current_eth_if->ip) {
+        return false;
+    }
+
+    for(int j = 0; j < num_callbacks; j++){
+        if(iph->daddr == callbacks[j].dest_ip &&
+           udph->dest == callbacks[j].dest_port){
+            *payload = buffer + eth_size + ip_header_size + sizeof(struct udphdr);
+            *payload_size = udp_size - sizeof(struct udphdr);
+            *fnc = callbacks[j].cb;
+            return true;
         }
     }
-    return check_result;
+    return false;
 }
 
 
-mj_msg_proc_res_t processPacket(uint8_t * buffer, uint64_t time_us){
+mj_msg_proc_res_t processPacket(uint8_t * buffer, size_t buffer_size, uint64_t time_us){
     void * payload = NULL;
     size_t payload_size = 0;
     mj_msg_proc_fcn fnc = NULL;
@@ -369,14 +407,16 @@ mj_msg_proc_res_t processPacket(uint8_t * buffer, uint64_t time_us){
     ts_ns = (uint32_t)(time_us % 1000000UL)*1000;
     struct timespec proc_time = {ts_s, ts_ns};
 
-    if(bufferHandler(buffer,&payload,&payload_size, &fnc)){
+    if(bufferHandler(buffer, buffer_size, &payload,&payload_size, &fnc)){
         // That data passes to callback our function
         uint8_t *cbData = (uint8_t *)malloc(payload_size);
         memcpy(cbData, payload, payload_size);
         result = fnc(cbData, payload_size, ts_s, ts_ns);
-        if(logFunction_p != NULL){
-            size_t buffer_size = payload_size + sizeof(struct udphdr) + sizeof(struct iphdr) + sizeof(struct ether_header);
+        if(result == MJ_ACCEPT && logFunction_p != NULL){
             logFunction_p(buffer, buffer_size, proc_time);
+        }
+        if(result != MJ_ACCEPT){
+            free(cbData);
         }
     }
     return result;
@@ -430,7 +470,8 @@ void * receiveFunction(void * args) {
                 size_t payload_size;
 
                 //handler needs to check IP, Protocol, Port and extract data
-                if(bufferHandler(recieve_buffer,&payload,&payload_size, &fnc)){
+                if(bufferHandler(recieve_buffer, (size_t)buffer_size,
+                                 &payload,&payload_size, &fnc)){
                     //That data passes to callback function
                     uint8_t * cbData = (uint8_t *) malloc(payload_size);
                     memcpy(cbData, payload, payload_size);
@@ -629,7 +670,11 @@ void setEthernetInterfaceName(char *name) {
 }
 
 void mj_drvInit()
-{  
+{
+    tx.socket = -1;
+    rx.socket = -1;
+    tx.is_running = false;
+    rx.is_running = false;
     //Transmitter start configuration
     tx.core = 3;
 
@@ -651,6 +696,7 @@ void mj_drvInit()
         if (ioctl(tx.socket, SIOCGIFINDEX, &if_idx) < 0){
             perror("MJDRV: CRITICAL: Could not get TX interface index");
             close(tx.socket);
+            tx.socket = -1;
             return;
         }
         int fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
@@ -659,6 +705,8 @@ void mj_drvInit()
         if (ioctl(fd, SIOCGIFHWADDR, &if_req) < 0){
             perror("MJDRV: CRITICAL: Could not get interface hw adress");
             close(fd);
+            close(tx.socket);
+            tx.socket = -1;
             return;
         }
         close(fd);
@@ -666,6 +714,7 @@ void mj_drvInit()
         if(setsockopt(tx.socket, SOL_SOCKET, SO_BINDTODEVICE, (void *)&if_idx, sizeof(if_idx))){
             perror("MJDRV: CRITICAL: An error occured trying to bind socket to the interface");
             close(tx.socket);
+            tx.socket = -1;
             return;
         }
 
@@ -694,10 +743,20 @@ void reinit_mjdrv(){
 void deinit_mjdrv(){
     setTxStatus(false);
     setRxStatus(false);
-    pthread_cancel(tx.thread_id);
-    pthread_cancel(rx.thread_id);
-    close(tx.socket);
-    close(rx.socket);
+    if (tx.is_running) {
+        pthread_cancel(tx.thread_id);
+        pthread_join(tx.thread_id, NULL);
+        tx.is_running = false;
+    }
+    if (rx.is_running) {
+        pthread_cancel(rx.thread_id);
+        pthread_join(rx.thread_id, NULL);
+        rx.is_running = false;
+    }
+    if (tx.socket >= 0) close(tx.socket);
+    if (rx.socket >= 0) close(rx.socket);
+    tx.socket = -1;
+    rx.socket = -1;
     return;
 }
 

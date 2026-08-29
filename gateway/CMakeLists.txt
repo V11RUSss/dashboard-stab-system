@@ -20,6 +20,7 @@ if(REAL_MODE)
         src/real_receiver.cpp
         microjetlinux/microjet_driver.c
         microjetlinux/ptp.c
+        microjetlib/mon/mj_mon_spec.c
         microjetlib/src/mjtypes.c
         microjetlib/src/mjutils.c
     )
@@ -32,6 +33,7 @@ add_executable(mj_gateway ${SOURCES})
 target_include_directories(mj_gateway PRIVATE
     src
     microjetlib/inc
+    microjetlib/mon
     microjetlinux
 )
 
@@ -43,6 +45,20 @@ target_compile_options(mj_gateway PRIVATE
     -Wall -Wextra -O2
     -Wno-unused-parameter
 )
+
+# ---------- Tests ------------------------------------------
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(gateway_protocol_tests
+        tests/protocol_tests.cpp
+        src/packet_handlers.cpp
+        src/tcp_forwarder.cpp
+    )
+    target_include_directories(gateway_protocol_tests PRIVATE src)
+    target_link_libraries(gateway_protocol_tests pthread)
+    target_compile_options(gateway_protocol_tests PRIVATE -Wall -Wextra)
+    add_test(NAME gateway_protocol_tests COMMAND gateway_protocol_tests)
+endif()
 
 # ---------- Defines -----------------------------------------
 # Режим по умолчанию задаётся через env GATEWAY_MODE, не через compile-time

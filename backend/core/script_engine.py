@@ -1,35 +1,28 @@
-"""
-Движок выполнения логических узлов Python
-"""
+"""Storage, formatting and isolated execution of user Python scripts."""
 
-import io
-import contextlib
-import os
+from __future__ import annotations
+
 import asyncio
 import logging
-import traceback
-from typing import List, Callable, Dict, Any, Tuple
+import os
+import sys
+import time
 
 logger = logging.getLogger(__name__)
 
 
 class ScriptEngine:
+    RUN_TIMEOUT_S = 5.0
+    OUTPUT_LIMIT_BYTES = 100_000
+
     def __init__(self, scripts_dir: str, shared_state=None, storage_data=None) -> None:
-        self.scripts_dir = scripts_dir
+        # shared_state/storage_data are retained in the constructor for API
+        # compatibility, but plain scripts are deliberately not coupled to
+        # telemetry or backend internals.
+        self.scripts_dir = os.path.abspath(scripts_dir)
         os.makedirs(self.scripts_dir, exist_ok=True)
-        self.active_script_name: str = ""
-        self.active_func: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]] = (
-            lambda data, ctx: data
-        )
 
-        self.shared_context: Dict[str, Any] = {
-            "shared_state": shared_state if shared_state is not None else {},
-            "history": storage_data if storage_data is not None else [],
-            "os": os,
-            "asyncio": asyncio,
-        }
-
-    def _sanitize_path(self, raw_filename: str) -> str:
+    def _sanitize_path(self, raw_filename: str | None) -> str:
         if not raw_filename:
             return "default_unnamed.py"
         safe_name = os.path.basename(raw_filename)
@@ -38,150 +31,136 @@ class ScriptEngine:
         return safe_name
 
     async def _format_code(self, filepath: str) -> str:
-        """линтинг и форматирование через Ruff."""
-        try:
-            # Линтер
-            proc_chk = await asyncio.create_subprocess_exec(
-                "ruff",
-                "check",
-                "--select",
-                "I",
-                "--fix",
-                filepath,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            chk_stdout, chk_stderr = await proc_chk.communicate()
+        """Run Ruff import sorting and formatting without executing the file."""
+        logs = []
+        commands = (
+            ("Линтер Ruff", "ruff", "check", "--select", "I", "--fix", filepath),
+            ("Форматирование Ruff", "ruff", "format", filepath),
+        )
+        for title, *command in commands:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+                text = (stdout + stderr).decode("utf-8", errors="replace").strip()
+                logs.append(f"[{title}] exit={process.returncode}\n{text or 'OK'}")
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                logs.append(f"[{title}] превышен таймаут")
+            except OSError as exc:
+                logs.append(f"[{title}] не удалось запустить: {exc}")
+        return "\n\n".join(logs)
 
-            # Форматтер
-            proc_fmt = await asyncio.create_subprocess_exec(
-                "ruff",
-                "format",
-                filepath,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            fmt_stdout, fmt_stderr = await proc_fmt.communicate()
-
-            logs = (
-                f"[Линтер Ruff]\n{chk_stdout.decode('utf-8')}{chk_stderr.decode('utf-8')}\n"
-                f"[Форматирование Ruff]\n{fmt_stdout.decode('utf-8')}{fmt_stderr.decode('utf-8')}"
-            )
-            return logs.strip()
-        except Exception as e:
-            return (
-                f"Критическая ошибка запуска инструмента Ruff (Установлен ли он?): {e}"
-            )
-
-    async def get_list(self) -> List[str]:
-        def _get():
-            return sorted(
-                [f for f in os.listdir(self.scripts_dir) if f.endswith(".py")]
-            )
+    async def get_list(self) -> list[str]:
+        def _get() -> list[str]:
+            return sorted(f for f in os.listdir(self.scripts_dir) if f.endswith(".py"))
 
         return await asyncio.to_thread(_get)
 
-    async def read_file(self, raw_filename: str) -> str:
+    async def read_file(self, raw_filename: str | None) -> str:
         filepath = os.path.join(self.scripts_dir, self._sanitize_path(raw_filename))
 
-        def _read():
+        def _read() -> str:
             try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    return f.read()
+                with open(filepath, "r", encoding="utf-8") as file:
+                    return file.read()
             except FileNotFoundError:
                 return ""
 
         return await asyncio.to_thread(_read)
 
-    async def remove_file(self, raw_filename: str) -> None:
-        safe_name = self._sanitize_path(raw_filename)
-        path = os.path.join(self.scripts_dir, safe_name)
-        try:
-            await asyncio.to_thread(lambda: os.path.isfile(path) and os.remove(path))
-        except Exception as e:
-            logger.error("Не удалось удалить: %s", e)
+    async def remove_file(self, raw_filename: str | None) -> None:
+        path = os.path.join(self.scripts_dir, self._sanitize_path(raw_filename))
 
-    async def save_and_format(self, raw_filename: str, content: str) -> Tuple[str, str]:
+        def _remove() -> None:
+            if os.path.isfile(path):
+                os.remove(path)
+
+        await asyncio.to_thread(_remove)
+
+    async def save_and_format(
+        self, raw_filename: str | None, content: str | None
+    ) -> tuple[str, str]:
         safe_name = self._sanitize_path(raw_filename)
         filepath = os.path.join(self.scripts_dir, safe_name)
-        await asyncio.to_thread(
-            lambda: open(filepath, "w", encoding="utf-8").write(content)
-        )
-        ruff_logs = await self._format_code(filepath)
-        success, compilation_logs = await self.set_active_script(safe_name)
+        source = content or ""
+
+        def _write() -> None:
+            with open(filepath, "w", encoding="utf-8") as file:
+                file.write(source)
+
+        await asyncio.to_thread(_write)
+        formatter_logs = await self._format_code(filepath)
         final_code = await self.read_file(safe_name)
+        return final_code, formatter_logs
 
-        total_logs = (
-            f"{ruff_logs}\n\n[РЕЗУЛЬТАТ КОМПИЛЯЦИИ СЕТАПА]:\n{compilation_logs}"
+    async def _read_limited(self, stream: asyncio.StreamReader) -> tuple[bytes, bool]:
+        chunks = []
+        retained = 0
+        truncated = False
+        while True:
+            chunk = await stream.read(8192)
+            if not chunk:
+                break
+            remaining = self.OUTPUT_LIMIT_BYTES - retained
+            if remaining > 0:
+                chunks.append(chunk[:remaining])
+                retained += min(len(chunk), remaining)
+            if len(chunk) > remaining:
+                truncated = True
+        return b"".join(chunks), truncated
+
+    async def run_code(self, code: str | None) -> dict:
+        """Execute plain Python in a child process and capture its result."""
+        if not isinstance(code, str) or not code.strip():
+            return {
+                "stdout": "",
+                "stderr": "Код пуст",
+                "exit_code": None,
+                "timed_out": False,
+                "duration_ms": 0,
+            }
+
+        started = time.monotonic()
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-I",
+            "-c",
+            code,
+            cwd=self.scripts_dir,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        return final_code, total_logs
-
-    async def set_active_script(self, raw_filename: str) -> Tuple[bool, str]:
-        safe_name = self._sanitize_path(raw_filename)
-        code = await self.read_file(safe_name)
-        if not code:
-            return False, "Файл пуст"
-
-        def _compile_and_set():
-            namespace: dict = {}
-            exec_globals = {"__builtins__": __builtins__}
-            try:
-                exec(code, {}, namespace)
-                if "process" in namespace:
-                    self.active_func = namespace["process"]
-                    self.active_script_name = safe_name
-                    logger.info("Активирован обработчик пакетов: %s", safe_name)
-                    return True, "Успешно: функция process() подхвачена ядром шлюза!"
-                return (
-                    False,
-                    "ОШИБКА: в скрипте отсутствует основная функция process(data, context).",
-                )
-            except Exception:
-                return False, traceback.format_exc()
-
+        stdout_task = asyncio.create_task(self._read_limited(process.stdout))
+        stderr_task = asyncio.create_task(self._read_limited(process.stderr))
+        timed_out = False
         try:
-            return await asyncio.to_thread(_compile_and_set)
-        except Exception as e:
-            logger.error(
-                "Синтаксическая ошибка при компиляции скрипта %s: %s", safe_name, e
-            )
-            return False, "Синтаксическая ошибка при компиляции скрипта"
+            await asyncio.wait_for(process.wait(), timeout=self.RUN_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            timed_out = True
+            process.kill()
+            await process.wait()
 
-    async def execute(self, data: dict) -> dict:
-        """Применяет активный скрипт."""
+        (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.gather(
+            stdout_task, stderr_task
+        )
+        duration_ms = round((time.monotonic() - started) * 1000)
 
-        def _exec_wrapper():
-            try:
-                return self.active_func(data, self.shared_context)
-            except Exception as e:
-                logger.error("Ошибка при обработке пакета скриптом: %s", e)
-                return data
+        def _decode(value: bytes, truncated: bool) -> str:
+            result = value.decode("utf-8", errors="replace")
+            if truncated:
+                result += "\n[вывод обрезан до 100000 байт]"
+            return result
 
-        return await asyncio.to_thread(_exec_wrapper)
-
-    async def dry_run(self, code: str, test_input: Dict[str, Any]):
-        """тестовый запуск скрипта с перехватом консоли"""
-
-        def _run_test():
-            output_buffer = io.StringIO()
-            exec_globals = {"__builtins__": __builtins__}
-            local_env = {"data": test_input, "result": {}}
-            try:
-                with contextlib.redirect_stdout(
-                    output_buffer
-                ), contextlib.redirect_stderr(output_buffer):
-                    exec(code, exec_globals, local_env)
-
-                if "process" in local_env and callable(local_env["process"]):
-                    result = local_env["process"](test_input, self.shared_context)
-                else:
-                    result = local_env.get("result", {})
-
-                return result, output_buffer.getvalue() or "Нет вывода"
-            except Exception as e:
-                return (
-                    {},
-                    output_buffer.getvalue() + f"\nКритическая ошибка выполнения: {e}",
-                )
-
-        return await asyncio.to_thread(_run_test)
+        return {
+            "stdout": _decode(stdout, stdout_truncated),
+            "stderr": _decode(stderr, stderr_truncated),
+            "exit_code": process.returncode,
+            "timed_out": timed_out,
+            "duration_ms": duration_ms,
+        }

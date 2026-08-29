@@ -10,17 +10,31 @@
 //  и упаковывают в TLV для отправки на backend.
 // ============================================================
 
-void handle_dcu_telemetry(TcpForwarder& fwd,
-                           uint16_t src_id, uint16_t dst_id,
-                           uint32_t ts_s, uint32_t ts_ns,
-                           const uint8_t* payload, size_t size);
+enum class DispatchResult {
+    Forwarded,
+    BackendUnavailable,
+    RejectHeader,
+    RejectId,
+    RejectSize,
+    RejectSource,
+    RejectTimestamp,
+};
 
-void handle_bup_state(TcpForwarder& fwd,
-                       uint16_t src_id, uint16_t dst_id,
-                       uint32_t ts_s, uint32_t ts_ns,
-                       const uint8_t* payload, size_t size);
+struct PacketStatsSnapshot {
+    uint64_t received;
+    uint64_t forwarded;
+    uint64_t backend_unavailable;
+    uint64_t rejected_header;
+    uint64_t rejected_id;
+    uint64_t rejected_size;
+    uint64_t rejected_source;
+    uint64_t rejected_timestamp;
+};
 
 // Диспетчер: разбирает MJ-заголовок из raw payload (header+data)
 // и вызывает нужный обработчик. payload — начиная с MJ-заголовка.
-void dispatch_mj_packet(TcpForwarder& fwd,
-                          const uint8_t* payload, size_t total_size);
+DispatchResult dispatch_mj_packet(TcpForwarder& fwd,
+                                  const uint8_t* payload, size_t total_size);
+
+PacketStatsSnapshot packet_stats_snapshot();
+void log_packet_stats();

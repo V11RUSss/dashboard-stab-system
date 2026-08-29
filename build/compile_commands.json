@@ -1,26 +1,44 @@
 [
 {
-  "directory": "/home/daniil/Projects/Dashboard/build",
-  "command": "/usr/bin/g++ -I/home/daniil/Projects/Dashboard/gateway/src -I/home/daniil/Projects/Dashboard/gateway/microjetlib/inc -I/home/daniil/Projects/Dashboard/gateway/microjetlinux -g -std=gnu++17 -Wall -Wextra -O2 -Wno-unused-parameter -o CMakeFiles/mj_gateway.dir/src/main.cpp.o -c /home/daniil/Projects/Dashboard/gateway/src/main.cpp",
-  "file": "/home/daniil/Projects/Dashboard/gateway/src/main.cpp",
-  "output": "/home/daniil/Projects/Dashboard/build/CMakeFiles/mj_gateway.dir/src/main.cpp.o"
+  "directory": "/home/v11rus/Sync/Projects/Dashboard/Main/build",
+  "command": "/usr/bin/g++  -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlib/inc -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlib/mon -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlinux -g -std=gnu++17 -Wall -Wextra -O2 -Wno-unused-parameter -o CMakeFiles/mj_gateway.dir/src/main.cpp.o -c /home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/main.cpp",
+  "file": "/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/main.cpp",
+  "output": "CMakeFiles/mj_gateway.dir/src/main.cpp.o"
 },
 {
-  "directory": "/home/daniil/Projects/Dashboard/build",
-  "command": "/usr/bin/g++ -I/home/daniil/Projects/Dashboard/gateway/src -I/home/daniil/Projects/Dashboard/gateway/microjetlib/inc -I/home/daniil/Projects/Dashboard/gateway/microjetlinux -g -std=gnu++17 -Wall -Wextra -O2 -Wno-unused-parameter -o CMakeFiles/mj_gateway.dir/src/tcp_forwarder.cpp.o -c /home/daniil/Projects/Dashboard/gateway/src/tcp_forwarder.cpp",
-  "file": "/home/daniil/Projects/Dashboard/gateway/src/tcp_forwarder.cpp",
-  "output": "/home/daniil/Projects/Dashboard/build/CMakeFiles/mj_gateway.dir/src/tcp_forwarder.cpp.o"
+  "directory": "/home/v11rus/Sync/Projects/Dashboard/Main/build",
+  "command": "/usr/bin/g++  -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlib/inc -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlib/mon -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlinux -g -std=gnu++17 -Wall -Wextra -O2 -Wno-unused-parameter -o CMakeFiles/mj_gateway.dir/src/tcp_forwarder.cpp.o -c /home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/tcp_forwarder.cpp",
+  "file": "/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/tcp_forwarder.cpp",
+  "output": "CMakeFiles/mj_gateway.dir/src/tcp_forwarder.cpp.o"
 },
 {
-  "directory": "/home/daniil/Projects/Dashboard/build",
-  "command": "/usr/bin/g++ -I/home/daniil/Projects/Dashboard/gateway/src -I/home/daniil/Projects/Dashboard/gateway/microjetlib/inc -I/home/daniil/Projects/Dashboard/gateway/microjetlinux -g -std=gnu++17 -Wall -Wextra -O2 -Wno-unused-parameter -o CMakeFiles/mj_gateway.dir/src/packet_handlers.cpp.o -c /home/daniil/Projects/Dashboard/gateway/src/packet_handlers.cpp",
-  "file": "/home/daniil/Projects/Dashboard/gateway/src/packet_handlers.cpp",
-  "output": "/home/daniil/Projects/Dashboard/build/CMakeFiles/mj_gateway.dir/src/packet_handlers.cpp.o"
+  "directory": "/home/v11rus/Sync/Projects/Dashboard/Main/build",
+  "command": "/usr/bin/g++  -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlib/inc -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlib/mon -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlinux -g -std=gnu++17 -Wall -Wextra -O2 -Wno-unused-parameter -o CMakeFiles/mj_gateway.dir/src/packet_handlers.cpp.o -c /home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/packet_handlers.cpp",
+  "file": "/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/packet_handlers.cpp",
+  "output": "CMakeFiles/mj_gateway.dir/src/packet_handlers.cpp.o"
 },
 {
-  "directory": "/home/daniil/Projects/Dashboard/build",
-  "command": "/usr/bin/g++ -I/home/daniil/Projects/Dashboard/gateway/src -I/home/daniil/Projects/Dashboard/gateway/microjetlib/inc -I/home/daniil/Projects/Dashboard/gateway/microjetlinux -g -std=gnu++17 -Wall -Wextra -O2 -Wno-unused-parameter -o CMakeFiles/mj_gateway.dir/src/sim_receiver.cpp.o -c /home/daniil/Projects/Dashboard/gateway/src/sim_receiver.cpp",
-  "file": "/home/daniil/Projects/Dashboard/gateway/src/sim_receiver.cpp",
-  "output": "/home/daniil/Projects/Dashboard/build/CMakeFiles/mj_gateway.dir/src/sim_receiver.cpp.o"
+  "directory": "/home/v11rus/Sync/Projects/Dashboard/Main/build",
+  "command": "/usr/bin/g++  -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlib/inc -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlib/mon -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/microjetlinux -g -std=gnu++17 -Wall -Wextra -O2 -Wno-unused-parameter -o CMakeFiles/mj_gateway.dir/src/sim_receiver.cpp.o -c /home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/sim_receiver.cpp",
+  "file": "/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/sim_receiver.cpp",
+  "output": "CMakeFiles/mj_gateway.dir/src/sim_receiver.cpp.o"
+},
+{
+  "directory": "/home/v11rus/Sync/Projects/Dashboard/Main/build",
+  "command": "/usr/bin/g++  -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src -g -std=gnu++17 -Wall -Wextra -o CMakeFiles/gateway_protocol_tests.dir/tests/protocol_tests.cpp.o -c /home/v11rus/Sync/Projects/Dashboard/Main/gateway/tests/protocol_tests.cpp",
+  "file": "/home/v11rus/Sync/Projects/Dashboard/Main/gateway/tests/protocol_tests.cpp",
+  "output": "CMakeFiles/gateway_protocol_tests.dir/tests/protocol_tests.cpp.o"
+},
+{
+  "directory": "/home/v11rus/Sync/Projects/Dashboard/Main/build",
+  "command": "/usr/bin/g++  -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src -g -std=gnu++17 -Wall -Wextra -o CMakeFiles/gateway_protocol_tests.dir/src/packet_handlers.cpp.o -c /home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/packet_handlers.cpp",
+  "file": "/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/packet_handlers.cpp",
+  "output": "CMakeFiles/gateway_protocol_tests.dir/src/packet_handlers.cpp.o"
+},
+{
+  "directory": "/home/v11rus/Sync/Projects/Dashboard/Main/build",
+  "command": "/usr/bin/g++  -I/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src -g -std=gnu++17 -Wall -Wextra -o CMakeFiles/gateway_protocol_tests.dir/src/tcp_forwarder.cpp.o -c /home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/tcp_forwarder.cpp",
+  "file": "/home/v11rus/Sync/Projects/Dashboard/Main/gateway/src/tcp_forwarder.cpp",
+  "output": "CMakeFiles/gateway_protocol_tests.dir/src/tcp_forwarder.cpp.o"
 }
 ]

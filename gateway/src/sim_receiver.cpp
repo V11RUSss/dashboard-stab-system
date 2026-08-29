@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cerrno>
 #include <csignal>
+#include <chrono>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -49,6 +50,7 @@ void SimReceiver::run() {
 
     static const size_t BUF = 4096;
     uint8_t buf[BUF];
+    auto next_stats = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 
     while (g_sim_running) {
         ssize_t n = recvfrom(sock, buf, BUF, 0, nullptr, nullptr);
@@ -61,6 +63,11 @@ void SimReceiver::run() {
 
         // Each UDP datagram is a raw MJ packet (header + payload, no ethernet)
         dispatch_mj_packet(fwd_, buf, (size_t)n);
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= next_stats) {
+            log_packet_stats();
+            next_stats = now + std::chrono::seconds(5);
+        }
     }
 
     close(sock);

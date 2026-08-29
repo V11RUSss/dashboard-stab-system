@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-15T10:29:01.038187Z",
+  "recordings": [
+    {
+      "id": "337c5116e9754097a32d14ba9da212b5",
+      "label": "Тестировка",
+      "status": "finalizing",
+      "format": "bro30-recording-batch-v1",
+      "path": "2026-08/rec_20260815T102840Z_337c5116.pkl",
+      "partial_path": "2026-08/rec_20260815T102840Z_337c5116.pkl.part",
+      "started_at": "2026-08-15T10:28:40.006069Z",
+      "planned_end_at": "2026-08-15T10:29:40.006069Z",
+      "requested_duration_seconds": 60,
+      "ended_at": null,
+      "duration_seconds": null,
+      "file_size_bytes": 0,
+      "packet_count": 0,
+      "raw_bytes": 0,
+      "message_counts": {},
+      "source_counts": {},
+      "dropped_packets": 0,
+      "stop_reason": null,
+      "incomplete": false
+    }
+  ]
+}
