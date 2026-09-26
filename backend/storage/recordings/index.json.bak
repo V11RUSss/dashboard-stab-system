@@ -1,26 +1,185 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-15T10:29:01.038187Z",
+  "updated_at": "2026-09-17T13:58:40.512038Z",
   "recordings": [
     {
       "id": "337c5116e9754097a32d14ba9da212b5",
       "label": "Тестировка",
-      "status": "finalizing",
+      "status": "completed",
       "format": "bro30-recording-batch-v1",
       "path": "2026-08/rec_20260815T102840Z_337c5116.pkl",
-      "partial_path": "2026-08/rec_20260815T102840Z_337c5116.pkl.part",
+      "partial_path": null,
       "started_at": "2026-08-15T10:28:40.006069Z",
       "planned_end_at": "2026-08-15T10:29:40.006069Z",
       "requested_duration_seconds": 60,
-      "ended_at": null,
-      "duration_seconds": null,
+      "ended_at": "2026-08-15T10:29:01.058189Z",
+      "duration_seconds": 21.05212,
+      "file_size_bytes": 27748366,
+      "packet_count": 84129,
+      "raw_bytes": 21116379,
+      "message_counts": {
+        "dcu_telemetry": 84129
+      },
+      "source_counts": {
+        "bup_dcu_lfd": 84129
+      },
+      "dropped_packets": 0,
+      "stop_reason": "manual",
+      "incomplete": false
+    },
+    {
+      "id": "1bf51c07fafa4274bf42fcc09073e88f",
+      "label": "vs gbcfkb",
+      "status": "deleted",
+      "format": "bro30-recording-batch-v1",
+      "path": ".trash/rec_20260910T130308Z_1bf51c07.pkl",
+      "partial_path": null,
+      "started_at": "2026-09-10T13:03:08.674714Z",
+      "planned_end_at": null,
+      "requested_duration_seconds": null,
+      "ended_at": "2026-09-10T13:03:22.172676Z",
+      "duration_seconds": 13.497962,
+      "file_size_bytes": 15594179,
+      "packet_count": 53859,
+      "raw_bytes": 13518609,
+      "message_counts": {
+        "dcu_telemetry": 53859
+      },
+      "source_counts": {
+        "bup_dcu_lfd": 53859
+      },
+      "dropped_packets": 0,
+      "stop_reason": "manual",
+      "incomplete": false,
+      "deleted_at": "2026-09-17T10:01:36.233237Z",
+      "original_path": "2026-09/rec_20260910T130308Z_1bf51c07.pkl"
+    },
+    {
+      "id": "9ede23b3a2e64869ab2a296eac38146c",
+      "label": "екуке",
+      "status": "deleted",
+      "format": "bro30-recording-batch-v1",
+      "path": ".trash/rec_20260916T184909Z_9ede23b3.pkl",
+      "partial_path": null,
+      "started_at": "2026-09-16T18:49:09.917045Z",
+      "planned_end_at": null,
+      "requested_duration_seconds": null,
+      "ended_at": "2026-09-16T18:49:14.760167Z",
+      "duration_seconds": 4.843122,
+      "file_size_bytes": 5782645,
+      "packet_count": 19189,
+      "raw_bytes": 4816439,
+      "message_counts": {
+        "dcu_telemetry": 19189
+      },
+      "source_counts": {
+        "bup_dcu_lfd": 19189
+      },
+      "dropped_packets": 0,
+      "stop_reason": "manual",
+      "incomplete": false,
+      "deleted_at": "2026-09-17T10:01:33.202496Z",
+      "original_path": "2026-09/rec_20260916T184909Z_9ede23b3.pkl"
+    },
+    {
+      "id": "8b3ebd10ee244c09ba0d0fad7e71b55d",
+      "label": "тест_1",
+      "status": "deleted",
+      "format": "bro30-recording-batch-v1",
+      "path": ".trash/rec_20260916T190629Z_8b3ebd10.pkl",
+      "partial_path": null,
+      "started_at": "2026-09-16T19:06:29.673900Z",
+      "planned_end_at": null,
+      "requested_duration_seconds": null,
+      "ended_at": "2026-09-16T19:06:46.419302Z",
+      "duration_seconds": 16.745402,
+      "file_size_bytes": 20074054,
+      "packet_count": 66849,
+      "raw_bytes": 16779099,
+      "message_counts": {
+        "dcu_telemetry": 66849
+      },
+      "source_counts": {
+        "bup_dcu_lfd": 66849
+      },
+      "dropped_packets": 0,
+      "stop_reason": "manual",
+      "incomplete": false,
+      "deleted_at": "2026-09-17T10:01:39.905358Z",
+      "original_path": "2026-09/rec_20260916T190629Z_8b3ebd10.pkl"
+    },
+    {
+      "id": "87cccb9d514540aa8d473be2ab01329c",
+      "label": "",
+      "status": "deleted",
+      "format": "bro30-recording-batch-v1",
+      "path": ".trash/rec_20260917T094858Z_87cccb9d.pkl",
+      "partial_path": null,
+      "started_at": "2026-09-17T09:48:58.456089Z",
+      "planned_end_at": null,
+      "requested_duration_seconds": null,
+      "ended_at": "2026-09-17T09:49:04.628980Z",
+      "duration_seconds": 6.172891,
+      "file_size_bytes": 7215540,
+      "packet_count": 24449,
+      "raw_bytes": 6136699,
+      "message_counts": {
+        "dcu_telemetry": 24449
+      },
+      "source_counts": {
+        "bup_dcu_lfd": 24449
+      },
+      "dropped_packets": 0,
+      "stop_reason": "manual",
+      "incomplete": false,
+      "deleted_at": "2026-09-17T09:51:58.205750Z",
+      "original_path": "2026-09/rec_20260917T094858Z_87cccb9d.pkl"
+    },
+    {
+      "id": "fc5bf1d47a4f4d62919adb5361f84e42",
+      "label": "",
+      "status": "completed",
+      "format": "bro30-recording-batch-v1",
+      "path": "2026-09/rec_20260917T123543Z_fc5bf1d4.pkl",
+      "partial_path": null,
+      "started_at": "2026-09-17T12:35:43.901244Z",
+      "planned_end_at": null,
+      "requested_duration_seconds": null,
+      "ended_at": "2026-09-17T12:37:02.418442Z",
+      "duration_seconds": 78.517198,
+      "file_size_bytes": 95619999,
+      "packet_count": 313904,
+      "raw_bytes": 78788496,
+      "message_counts": {
+        "dcu_telemetry": 313896,
+        "bup_state": 8
+      },
+      "source_counts": {
+        "bup_dcu_lfd": 313904
+      },
+      "dropped_packets": 0,
+      "stop_reason": "manual",
+      "incomplete": false
+    },
+    {
+      "id": "eda8016aa66f40a78684d5b58047a009",
+      "label": "NTrtwe",
+      "status": "completed",
+      "format": "bro30-recording-batch-v1",
+      "path": "2026-09/rec_20260917T135837Z_eda8016a.pkl",
+      "partial_path": null,
+      "started_at": "2026-09-17T13:58:37.631322Z",
+      "planned_end_at": null,
+      "requested_duration_seconds": null,
+      "ended_at": "2026-09-17T13:58:40.511179Z",
+      "duration_seconds": 2.879857,
       "file_size_bytes": 0,
       "packet_count": 0,
       "raw_bytes": 0,
       "message_counts": {},
       "source_counts": {},
       "dropped_packets": 0,
-      "stop_reason": null,
+      "stop_reason": "manual",
       "incomplete": false
     }
   ]

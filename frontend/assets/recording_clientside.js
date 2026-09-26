@@ -1,162 +1,130 @@
+/* Recording controls use a low-rate, same-origin API independent of telemetry. */
 (function () {
-    "use strict";
-
-    function envelope(message) {
-        if (!message) {
-            return null;
-        }
+    'use strict';
+    const state = {status: {state: 'idle'}, busy: false, polling: false, lastPoll: 0,
+        label: '', list: [], selected: '', mode: 'live', loading: false, loadId: 0, message: '', dirty: true, lastCompleted: null};
+    const api = async (path, method = 'GET', body) => {
+        const response = await fetch('/api/recordings/' + path, {method, cache: 'no-store',
+            headers: {'X-Requested-With': 'recordings', 'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Ошибка работы с записью');
+        return data;
+    };
+    const el = (tag, text, cls) => { const node = document.createElement(tag); node.textContent = text || ''; if (cls) node.className = cls; return node; };
+    const button = (text, action, cls = 'btn btn-sm btn-outline-secondary') => {
+        const node = el('button', text, cls); node.type = 'button'; node.onclick = action; return node;
+    };
+    const name = entry => (entry.label ? entry.label + ' · ' : '') + String(entry.path || '').split('/').pop();
+    async function refresh() {
         try {
-            return JSON.parse(message.data || message);
-        } catch (_error) {
-            return null;
+            state.list = (await api('recordings')).recordings.filter(r => !['recording', 'finalizing'].includes(r.status));
+            if (!state.list.some(r => r.id === state.selected)) state.selected = state.list[0]?.id || '';
+            state.dirty = true;
+        } catch (error) { state.message = error.message; state.dirty = true; }
+    }
+    async function toggle() {
+        if (state.busy || state.status.state === 'finalizing') return;
+        state.busy = true; paintStatus();
+        try {
+            state.status = await api(state.status.state === 'recording' ? 'stop' : 'start', 'POST', {label: state.label});
+            state.message = ''; await refresh();
+            if (state.status.state === 'idle' && state.status.last_completed) state.selected = state.status.last_completed.id;
+        } catch (error) { state.message = error.message; }
+        finally { state.busy = false; state.dirty = true; paintStatus(); }
+    }
+    function live() {
+        state.mode = 'live'; state.loadId++; state.loading = false; state.message = ''; state.dirty = true;
+        window.bro30Scope.useLive();
+    }
+    async function open() {
+        if (!state.selected) return;
+        const id = state.selected, token = ++state.loadId;
+        state.loading = true; state.message = 'Подготовка записи…'; state.dirty = true;
+        try {
+            while (token === state.loadId) {
+                const data = await api('recordings/' + id + '/preview');
+                if (token !== state.loadId) return;
+                if (data.state === 'ready') {
+                    window.bro30Scope.useArchive(id, data);
+                    state.mode = 'archive'; state.loading = false;
+                    state.message = Object.keys(data.devices).length ? 'Открыта: ' + name(data.entry) : 'В записи нет данных для графика';
+                    if (data.entry.incomplete) state.message += ' · запись неполная';
+                    state.dirty = true; return;
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        } catch (error) {
+            if (token === state.loadId) { state.loading = false; state.message = error.message; state.dirty = true; }
         }
     }
-
-    function duration(seconds) {
-        const value = Math.max(0, Math.floor(Number(seconds) || 0));
-        const hours = Math.floor(value / 3600);
-        const minutes = Math.floor((value % 3600) / 60);
-        const rest = value % 60;
-        const pairs = hours > 0 ? [hours, minutes, rest] : [minutes, rest];
-        return pairs.map(function (part) {
-            return String(part).padStart(2, "0");
-        }).join(":");
+    async function remove() {
+        const entry = state.list.find(r => r.id === state.selected);
+        if (!entry || !window.confirm('Удалить запись «' + name(entry) + '» из списка?')) return;
+        try {
+            await api('recordings/' + entry.id + '/delete', 'POST');
+            if (window.bro30Scope.archiveId() === entry.id) live();
+            state.message = 'Запись удалена'; await refresh();
+        } catch (error) { state.message = error.message; state.dirty = true; }
     }
-
-    function megabytes(value) {
-        const bytes = Number(value || 0);
-        if (bytes >= 1024 * 1024 * 1024) {
-            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " ГБ";
+    function paintStatus() {
+        const node = document.getElementById('recording-toggle-btn'); if (!node) return;
+        const current = state.status, active = current.state === 'recording', finalizing = current.state === 'finalizing';
+        node.textContent = state.busy ? 'Подождите…' : finalizing ? 'Сохранение…' : active ? '■ Остановить запись' : '● Начать запись';
+        node.disabled = state.busy || finalizing;
+        const labelInput = document.getElementById('recording-label');
+        if (labelInput) labelInput.disabled = state.busy || active || finalizing;
+        node.className = 'btn btn-sm recording-button ' + (active ? 'recording-button-active' : 'btn-outline-primary');
+        const detail = document.getElementById('recording-current-status');
+        if (detail) detail.textContent = current.last_error || (active ? 'Идёт запись · ' + Math.max(0, Math.floor((Date.now() - Date.parse(current.started_at))/1000)) + ' с' : finalizing ? 'Сохраняем файл…' : current.last_completed ? 'Сохранено: ' + name(current.last_completed) : '');
+    }
+    function mount() {
+        const controls = document.getElementById('recording-controls'), library = document.getElementById('recording-library');
+        if (!controls || !library) return;
+        if (!controls.children.length) {
+            const toggleButton = button('Начать запись', toggle); toggleButton.id = 'recording-toggle-btn';
+            const detail = el('div', '', 'scope-note'); detail.id = 'recording-current-status'; detail.setAttribute('role', 'status');
+            const labelInput = el('input', '', 'form-control form-control-sm');
+            labelInput.id = 'recording-label'; labelInput.type = 'text'; labelInput.maxLength = 80;
+            labelInput.placeholder = 'Название записи'; labelInput.setAttribute('aria-label', 'Название записи');
+            labelInput.value = state.label; labelInput.style.cssText = 'width:240px;max-width:100%';
+            labelInput.oninput = () => { state.label = labelInput.value; };
+            controls.append(labelInput, toggleButton, detail);
         }
-        return (bytes / (1024 * 1024)).toFixed(1) + " МБ";
+        if (!state.dirty && library.children.length) return;
+        state.dirty = false; library.replaceChildren();
+        const modes = el('div', '', 'recording-modes');
+        const liveButton = button('Прямой эфир', live), archiveButton = button('Записи', () => { state.mode = 'archive'; state.dirty = true; refresh(); });
+        [liveButton, archiveButton].forEach((b, i) => { b.setAttribute('aria-pressed', String((state.mode === 'live') === (i === 0))); });
+        modes.append(liveButton, archiveButton); library.append(modes);
+        if (state.mode === 'archive') {
+            const row = el('div', '', 'recording-library-actions');
+            const select = el('select', '', 'form-select form-select-sm'); select.setAttribute('aria-label', 'Сохранённая запись');
+            if (!state.list.length) { const option = el('option', 'Сохранённых записей пока нет'); option.value = ''; select.append(option); }
+            state.list.forEach(entry => { const option = el('option', name(entry)); option.value = entry.id; select.append(option); });
+            select.value = state.selected;
+            select.onchange = () => { state.selected = select.value; state.loadId++; state.loading = false; state.dirty = true; };
+            const show = button(state.loading ? 'Подготовка…' : 'Открыть', open); show.disabled = !state.selected || state.loading;
+            const download = el('a', 'Скачать PKL', 'btn btn-sm btn-outline-secondary');
+            if (state.selected) { download.href = '/api/recordings/recordings/' + state.selected + '/download'; download.setAttribute('download', ''); }
+            else download.setAttribute('aria-disabled', 'true');
+            const del = button('Удалить', remove, 'btn btn-sm btn-outline-danger'); del.disabled = !state.selected || state.loading;
+            row.append(select, show, download, del, button('Обновить список', refresh)); library.append(row);
+            library.append(el('div', state.message || (window.bro30Scope.archiveId() ? '' : 'Выберите запись и нажмите «Открыть». Пока отображается прямой эфир.'), 'scope-note'));
+        } else if (state.message) library.append(el('div', state.message, 'scope-note'));
     }
-
-    function request(action, payload) {
-        return JSON.stringify({
-            action: action,
-            payload: payload || {},
-            request_id: "recording-" + Date.now(),
-        });
-    }
-
-    window.dash_clientside = Object.assign({}, window.dash_clientside, {
-        bro30Recording: {
-            receiveStatus: function (message, currentStatus) {
-                const noUpdate = window.dash_clientside.no_update;
-                const event = envelope(message);
-                if (!event) {
-                    return noUpdate;
-                }
-                if (event.type === "recording_status") {
-                    return event.payload || {state: "idle"};
-                }
-                if (
-                    event.type === "request_error"
-                    && event.request_id
-                    && String(event.request_id).startsWith("recording-")
-                ) {
-                    const previous = currentStatus || {state: "idle"};
-                    return Object.assign({}, previous, {
-                        last_error: (event.payload || {}).message || "Ошибка записи",
-                    });
-                }
-                return noUpdate;
-            },
-
-            renderStatus: function (status) {
-                const current = status || {state: "idle"};
-                const state = current.state || "idle";
-                const base = "btn btn-sm recording-button ";
-                let details = "";
-                if (current.last_error) {
-                    details = "Ошибка: " + current.last_error;
-                }
-
-                if (state === "recording") {
-                    const started = Date.parse(current.started_at);
-                    const planned = Date.parse(current.planned_end_at);
-                    const now = Date.now();
-                    const clock = Number.isFinite(planned)
-                        ? "осталось " + duration((planned - now) / 1000)
-                        : duration((now - started) / 1000);
-                    details = "Пакетов: " + Number(current.packets_captured || 0).toLocaleString("ru-RU")
-                        + " · записано: " + megabytes(current.file_size_bytes);
-                    return [
-                        "● Идёт запись · " + clock,
-                        base + "recording-button-active",
-                        "Нажмите, чтобы остановить и сохранить запись",
-                        false,
-                        details,
-                    ];
-                }
-                if (state === "finalizing") {
-                    details = "Дописывается очередь: "
-                        + Number(current.queue_depth || 0).toLocaleString("ru-RU")
-                        + " пакетов";
-                    return [
-                        "Сохранение…",
-                        base + "recording-button-finalizing",
-                        "Идёт безопасное завершение файла",
-                        true,
-                        details,
-                    ];
-                }
-                return [
-                    "Начать запись",
-                    base + "btn-outline-primary",
-                    current.last_error || "Записать сырую телеметрию в отдельный PKL",
-                    false,
-                    details,
-                ];
-            },
-
-            handleControls: function (
-                _toggleClicks,
-                _startClicks,
-                _cancelClicks,
-                status,
-                selectedDuration,
-                label,
-                panelHidden
-            ) {
-                const noUpdate = window.dash_clientside.no_update;
-                const context = window.dash_clientside.callback_context;
-                const triggered = context && context.triggered && context.triggered[0];
-                const triggerId = triggered
-                    ? triggered.prop_id.split(".")[0]
-                    : null;
-                const state = (status || {}).state || "idle";
-
-                if (triggerId === "recording-status-store") {
-                    return [noUpdate, state !== "idle" ? true : panelHidden, noUpdate];
-                }
-                if (triggerId === "recording-toggle-btn") {
-                    if (state === "recording") {
-                        return [request("stop_recording"), true, noUpdate];
-                    }
-                    if (state === "finalizing") {
-                        return [noUpdate, true, noUpdate];
-                    }
-                    return [noUpdate, !panelHidden, noUpdate];
-                }
-                if (triggerId === "recording-start-btn") {
-                    const seconds = selectedDuration === "manual"
-                        ? null
-                        : Number(selectedDuration);
-                    return [
-                        request("start_recording", {
-                            duration_seconds: seconds,
-                            label: String(label || "").trim(),
-                        }),
-                        true,
-                        "",
-                    ];
-                }
-                if (triggerId === "recording-cancel-btn") {
-                    return [noUpdate, true, noUpdate];
-                }
-                return [noUpdate, panelHidden, noUpdate];
-            },
+    window.bro30Recording = {
+        tick: function () {
+            mount(); paintStatus();
+            if (!state.polling && Date.now() - state.lastPoll > 1000) {
+                state.polling = true; state.lastPoll = Date.now();
+                api('status').then(status => {
+                    state.status = status;
+                    const done = status.last_completed?.id;
+                    if (done !== state.lastCompleted) { state.lastCompleted = done; refresh(); }
+                }).catch(error => { state.status = {...state.status, last_error: error.message}; })
+                .finally(() => { state.polling = false; paintStatus(); });
+            }
         },
-    });
+    };
 }());

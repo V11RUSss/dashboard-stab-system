@@ -68,7 +68,7 @@ FIELD_LABELS = {
 SECTION_LABELS = {
     "state": "Состояние",
     "controls": "Команды и параметры",
-    "service": "Управление 50 Гц",
+    "service": "Управление",
 }
 
 
@@ -305,27 +305,11 @@ def _commands_panel(device_id: str) -> html.Div:
                         ],
                         className="control-field",
                     ),
-                    html.Div(
-                        [
-                            html.Label("Что запросить у устройства", className="control-label"),
-                            dcc.RadioItems(
-                                id={"type": "message-select", "index": device_id},
-                                options=[], value=0x10AD,
-                                className="message-choice-list",
-                            ),
-                            html.Button(
-                                "Запросить", id={"type": "message-send", "index": device_id},
-                                n_clicks=0, disabled=True,
-                                className="btn btn-sm btn-outline-primary mt-2",
-                            ),
-                        ],
-                        className="control-field",
-                    ),
                 ],
                 className="device-control-grid",
             ),
             html.Div(
-                "Команда отправляется один раз. Запрос сообщения тоже отправляется один раз и ожидает ответ устройства.",
+                "Команда отправляется один раз.",
                 className="control-help",
             ),
         ],
@@ -337,17 +321,9 @@ def _controls_panel(device_id: str) -> html.Div:
     return html.Div(
         [
             html.H3("Разовые команды", className="device-control-heading"),
-            html.Div(
-                "Здесь находятся 11 команд cmd_req и два запроса msg_req. Все варианты видны в списках ниже.",
-                className="control-explanation",
-            ),
             _commands_panel(device_id),
             html.Div(className="control-divider"),
             html.H3("Параметры контроллера", className="device-control-heading"),
-            html.Div(
-                "Параметры — это 71 настройка prm_req, а не три дополнительные команды. Их можно прочитать, изменить и сохранить во flash.",
-                className="control-explanation",
-            ),
             _parameter_panel(device_id),
         ],
         id={"type": "device-section-panel", "index": device_id, "section": "controls"},
@@ -363,10 +339,6 @@ def _service_panel(device_id: str) -> html.Div:
     ]
     return html.Div(
         [
-            html.Div(
-                "Этот раздел запускает непрерывный поток bup_srv_ctrl: Gateway отправляет выбранное задание каждые 20 мс.",
-                className="control-explanation",
-            ),
             html.Div(
                 [
                     html.Div(
@@ -411,7 +383,7 @@ def _service_panel(device_id: str) -> html.Div:
                             "на выбранный контроллер?"
                         ),
                         children=html.Button(
-                            "Запустить поток 50 Гц",
+                            "Запустить поток",
                             id={"type": "service-start-button", "index": device_id},
                             disabled=True,
                             className="btn btn-sm btn-danger",
@@ -531,15 +503,6 @@ devices_layout = html.Div(
         dcc.Interval(id="control-catalog-bootstrap", interval=500, n_intervals=0),
         html.Div(
             [
-                html.Div(
-                    [
-                        html.H1("Устройства", className="page-title"),
-                        html.Div(
-                            "Телеметрия и управление шестью контроллерами МУП",
-                            className="page-description",
-                        ),
-                    ]
-                ),
                 html.Div(id="devices-connection-status", className="connection-status"),
             ],
             className="page-heading",
@@ -855,17 +818,14 @@ def register_devices_callbacks(app):
     @app.callback(
         Output({"type": "parameter-select", "index": ALL}, "options"),
         Output({"type": "command-select", "index": ALL}, "options"),
-        Output({"type": "message-select", "index": ALL}, "options"),
         Output({"type": "service-mode", "index": ALL}, "options"),
         Output({"type": "command-select", "index": ALL}, "value"),
-        Output({"type": "message-select", "index": ALL}, "value"),
         Output({"type": "service-mode", "index": ALL}, "value"),
         Input("control-catalog-store", "data"),
         State({"type": "command-select", "index": ALL}, "value"),
-        State({"type": "message-select", "index": ALL}, "value"),
         State({"type": "service-mode", "index": ALL}, "value"),
     )
-    def catalog_options(catalog, selected_commands, selected_messages, selected_modes):
+    def catalog_options(catalog, selected_commands, selected_modes):
         catalog = catalog or {}
         parameters = [
             {
@@ -878,17 +838,12 @@ def register_devices_callbacks(app):
             {"label": f"{item['name']} — {item['label']}", "value": item["value"]}
             for item in catalog.get("commands", [])
         ]
-        messages = [
-            {"label": f"{item['label']} ({item['name']})", "value": item["id"]}
-            for item in catalog.get("messages", [])
-        ]
         modes = [
             {"label": item.get("label", item["name"]), "value": item["value"]}
             for item in catalog.get("service_modes", [])
         ]
 
         command_values = {item["value"] for item in catalog.get("commands", [])}
-        message_values = {item["id"] for item in catalog.get("messages", [])}
         mode_values = {item["value"] for item in catalog.get("service_modes", [])}
 
         def keep_or_default(selected, valid, preferred):
@@ -905,10 +860,8 @@ def register_devices_callbacks(app):
         return (
             [parameters] * count,
             [commands] * count,
-            [messages] * count,
             [modes] * count,
             keep_or_default(selected_commands, command_values, 7),
-            keep_or_default(selected_messages, message_values, 0x10AD),
             keep_or_default(selected_modes, mode_values, 1),
         )
 
@@ -918,7 +871,6 @@ def register_devices_callbacks(app):
         Output({"type": "command-description", "index": ALL}, "children"),
         Output({"type": "service-mode-description", "index": ALL}, "children"),
         Output({"type": "command-send-button", "index": ALL}, "disabled"),
-        Output({"type": "message-send", "index": ALL}, "disabled"),
         Input("control-catalog-store", "data"),
         Input({"type": "command-select", "index": ALL}, "value"),
         Input({"type": "service-mode", "index": ALL}, "value"),
@@ -928,7 +880,6 @@ def register_devices_callbacks(app):
         parameters = catalog.get("parameters", [])
         command_map = {item["value"]: item for item in catalog.get("commands", [])}
         mode_map = {item["value"]: item for item in catalog.get("service_modes", [])}
-        message_ready = bool(catalog.get("messages"))
         command_ready = bool(command_map)
         if parameters:
             hint = f"Каталог загружен: {len(parameters)} параметр(ов). Откройте список или начните вводить название."
@@ -953,7 +904,7 @@ def register_devices_callbacks(app):
             mode_value = selected_modes[index] if index < len(selected_modes) else None
             mode = mode_map.get(mode_value)
             mode_descriptions.append(
-                mode.get("description", "Выберите режим потока 50 Гц.")
+                mode.get("description", "Выберите режим управления.")
                 if mode else "Каталог режимов загружается…"
             )
 
@@ -964,7 +915,6 @@ def register_devices_callbacks(app):
             command_descriptions,
             mode_descriptions,
             [not command_ready] * count,
-            [not message_ready] * count,
         )
 
     @app.callback(
@@ -1089,14 +1039,12 @@ def register_devices_callbacks(app):
         Input({"type": "parameter-read-all", "index": ALL}, "n_clicks"),
         Input({"type": "parameter-save", "index": ALL}, "submit_n_clicks"),
         Input({"type": "command-send", "index": ALL}, "submit_n_clicks"),
-        Input({"type": "message-send", "index": ALL}, "n_clicks"),
         Input({"type": "service-start", "index": ALL}, "submit_n_clicks"),
         Input({"type": "service-update", "index": ALL}, "n_clicks"),
         Input({"type": "service-stop", "index": ALL}, "n_clicks"),
         State({"type": "parameter-select", "index": ALL}, "value"),
         State({"type": "parameter-value", "index": ALL}, "value"),
         State({"type": "command-select", "index": ALL}, "value"),
-        State({"type": "message-select", "index": ALL}, "value"),
         State({"type": "service-mode", "index": ALL}, "value"),
         State({"type": "service-angle", "index": ALL}, "value"),
         State({"type": "service-speed", "index": ALL}, "value"),
@@ -1105,9 +1053,9 @@ def register_devices_callbacks(app):
         prevent_initial_call=True,
     )
     def dispatch_control(
-        _read, _write, _read_all, _save, _command, _message,
+        _read, _write, _read_all, _save, _command,
         _start, _update, _stop,
-        parameters, parameter_values, commands, messages, modes,
+        parameters, parameter_values, commands, modes,
         angles, speeds, voltages, currents,
     ):
         triggered = ctx.triggered_id
@@ -1136,9 +1084,6 @@ def register_devices_callbacks(app):
         elif trigger_type == "command-send":
             action = "execute_command"
             payload["command"] = commands[index]
-        elif trigger_type == "message-send":
-            action = "request_message"
-            payload["message_id"] = messages[index]
         elif trigger_type in {"service-start", "service-update"}:
             action = "service_start" if trigger_type == "service-start" else "service_update"
             payload.update(

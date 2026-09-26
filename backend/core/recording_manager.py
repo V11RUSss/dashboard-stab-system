@@ -218,7 +218,36 @@ class RecordingManager:
         await asyncio.to_thread(self._write_catalog_sync)
 
     def list_recordings(self) -> list[dict]:
-        return [dict(item) for item in reversed(self._catalog["recordings"])]
+        return [dict(item) for item in reversed(self._catalog["recordings"]) if item.get("status") != "deleted"]
+
+    async def delete_recording(self, recording_id: str) -> dict:
+        """Remove from the catalogue view; retain file in local trash for recovery."""
+        from tools.recordings import recording_path
+        async with self._lock:
+            entry = next((r for r in self._catalog["recordings"] if r["id"] == recording_id), None)
+            if not entry or entry.get("status") == "deleted":
+                raise ValueError("Запись не найдена")
+            if entry.get("status") in {"recording", "finalizing"}:
+                raise ValueError("Нельзя удалить активную запись")
+            source = recording_path(self.recordings_dir, entry)
+            trash = self.recordings_dir / ".trash"
+            trash.mkdir(exist_ok=True)
+            destination = trash / source.name
+            previous = dict(entry)
+            await asyncio.to_thread(os.replace, source, destination)
+            entry.update(status="deleted", deleted_at=iso_utc(utc_now()),
+                         original_path=entry.get("path"),
+                         path=destination.relative_to(self.recordings_dir).as_posix(), partial_path=None)
+            try:
+                await self._save_catalog()
+            except Exception:
+                entry.clear()
+                entry.update(previous)
+                await asyncio.to_thread(os.replace, destination, source)
+                raise
+        if self._last_completed and self._last_completed.get("id") == recording_id:
+            self._last_completed = None
+        return {"deleted": recording_id}
 
     def get_status(self) -> dict:
         active = self._active

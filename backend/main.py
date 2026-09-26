@@ -9,6 +9,7 @@ from collections import deque
 from logging.handlers import RotatingFileHandler
 
 from core.recording_manager import RecordingManager
+from core.recording_http import RecordingAPI
 from core.control_service import ControlService
 from core.script_engine import ScriptEngine
 from core.tcp_server import TCPGatewayServer
@@ -98,9 +99,11 @@ async def main() -> None:
 
     logger.info("Запуск фоновых процессов...")
     await recording_manager.start()
+    recording_api = RecordingAPI(recording_manager)
     try:
         await asyncio.gather(ws_server.start(), tcp_server.start())
     finally:
+        await recording_api.close()
         await control_service.close()
         await recording_manager.close()
 

@@ -14,6 +14,9 @@ app = dash.Dash(
 )
 app.title = "BRO30 Dashboard"
 
+from recording_proxy import register_recording_routes
+register_recording_routes(app.server)
+
 WEBSOCKET_URL = os.environ.get("WEBSOCKET_URL", "ws://localhost:8765")
 
 # Apply the saved theme before Dash renders to avoid a light/dark flash.

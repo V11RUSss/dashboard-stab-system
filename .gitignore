@@ -1,3 +1,5 @@
 .vscode
 main.pdf
 REVERSE_CHANNEL_IMPLEMENTATION.md
+backend/storage/recordings/.preview/
+backend/storage/recordings/.trash/

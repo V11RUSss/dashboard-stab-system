@@ -92,20 +92,6 @@ editor_panel = html.Div(
 
 editor_layout = html.Div(
     [
-        html.Div(
-            [
-                html.Div(
-                    [
-                        html.H1("Скрипты", className="page-title"),
-                        html.Div(
-                            "Редактирование и запуск диагностических сценариев",
-                            className="page-description",
-                        ),
-                    ]
-                )
-            ],
-            className="page-heading",
-        ),
         editor_panel,
     ],
     className="page-section",
