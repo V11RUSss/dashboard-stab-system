@@ -1,0 +1,124 @@
+#include "drv_ctrl_mode.idl"
+#include "drv_ctrl_error.idl"
+#include "relay_signal_state.idl"
+#include "rotor_ang_sens_state.idl"
+#include "load_ang_sens_state.idl"
+#include "inverter_status.idl"
+#include "dcu_status.idl"
+#include "park_vec.idl"
+#include "rotor_brake_state.idl"
+#include "pid_state.idl"
+#include "hall_sensor.idl"
+
+@doc('Теелеметрия модуля управления приводом БУП')
+struct dcu_telemetry
+{
+    @doc('Способ управления приводом')
+    @alias('drv_ctrl_mode')
+    int8 mode;
+
+    @doc('Состояние')
+    @alias('dcu_status')
+    int8 status;
+
+    @doc('Код ошибки смены способа управления')
+    @alias('drv_ctrl_error')
+    int8 err;
+
+    @doc('Состояние датчика углового положения нагрузки')
+    @alias('load_ang_sens_status')
+    int8 load_sens_state;
+
+    @doc('Данные от датчика углового положения нагрузки, рад +-pi')
+    float load_sens_angle;
+
+    @doc('Угловая скорость датчика положения нагрузки, рад/с')
+    float load_sens_speed;
+
+    @doc('Напряжение питания силовых цепей, В')
+    float power_vdc;
+
+    @doc('Трехфазный ток, A')
+    three_phase_val current;
+
+    @doc('Коэффициент заполнения ШИМ')
+    three_phase_val pwm;
+
+    @doc('Напряжение на фазах в СК Парка-Горева, В')
+    park_vec park_voltage;
+
+    @doc('Ток фаз в СК Парка-Горева, A')
+    park_vec park_current;
+
+    @doc('Ток тормоза')
+    float ibrk;
+
+    @doc('Температра статора, C')
+    float stator_temp;
+
+    @doc('Состояние тормоза')
+    @alias('rotor_brake_state')
+    int8 brake_state;
+
+    @doc('Напряжение питания модуля, В')
+    float power_voltage;
+
+    @doc('Мощность, положителная - потребляем, отрицательная - генерируем в сеть, ВА')
+    float electrical_power;
+
+    @doc('Состояние ПИД регулятора угла')
+    pid_state ang_pid_state;
+
+    @doc('Состояние ПИД регулятора скорости ротора')
+    pid_state rotor_spd_pid_state;
+
+    @doc('Состояние ПИД регулятора скорости нагрузки')
+    pid_state load_spd_pid_state;
+
+    @doc('Состояние ПИД регулятора тока q')
+    pid_state curr_q_pid_state;
+
+    @doc('Состояние ПИД регулятора тока d')
+    pid_state curr_d_pid_state;
+
+    @doc('Состояние датчика углового положения ротора')
+    @alias('rotor_ang_sens_status')
+    int8 rotor_sens_state;
+
+    @doc('Данные от датчика углового положения ротора, рад +-pi')
+    float rotor_sens_angle;
+
+    @doc('Угловая скорость датчика положения ротора, рад/с')
+    float rotor_sens_speed;
+
+    @doc('Состояние дискретного сигнала ON')
+    @alias('relay_signal_state')
+    int8 on;
+
+    @doc('Состояние дискретного сигнала MANUAL')
+    @alias('relay_signal_state')
+    int8 manual;
+    
+    @doc('Состояние дискретного сигнала BLOCK')
+    @alias('relay_signal_state')
+    int8 block;
+
+    @doc('Состояние дискретного сигнала SYNC')
+    @alias('relay_signal_state')
+    int8 sync;
+
+    @doc("Перегрузка по току или перегрев преобразователя. Активный уровень - low")
+    @alias('relay_signal_state')
+    int8 inv_octw;
+
+    @doc("Отказ. Активный уровень - low")
+    @alias('relay_signal_state')
+    int8 inv_fault;
+
+    @doc('Включение драйвера затворов')
+    @alias('relay_signal_state')
+    int8 en_gate;
+
+    @doc('Логические уровни датчиков Холла')
+    hall_sensor hall;
+};
